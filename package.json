@@ -1,0 +1,13 @@
+{
+  "name": "word-record",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Right-click to capture English words with context, enrich via magpie, review with an Ebbinghaus schedule.",
+  "workspaces": ["server", "web"],
+  "scripts": {
+    "dev": "npm run dev -w server & npm run dev -w web",
+    "build": "npm run build -w web",
+    "start": "npm run build && npm run start -w server",
+    "test": "npm test -w server"
+  }
+}
