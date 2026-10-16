@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import { api, type ApiFormat, type ConnectionTest, type Settings, type SettingsPatch } from '../api';
+import type { ApiFormat, ConnectionTest, Settings } from '../api';
 
 const FORMATS: { value: ApiFormat; label: string; path: string; example: string }[] = [
   { value: 'openai', label: 'OpenAI', path: '/chat/completions', example: 'https://api.openai.com/v1' },
@@ -7,49 +6,32 @@ const FORMATS: { value: ApiFormat; label: string; path: string; example: string 
   { value: 'claude', label: 'Claude', path: '/messages', example: 'https://api.anthropic.com' },
 ];
 
-/** Service URL + API key. The saved key is never shown; leaving the field empty keeps it. */
-export function ConnectionForm({ settings, onSaved }: { settings: Settings; onSaved: (s: Settings) => void }) {
-  const [baseUrl, setBaseUrl] = useState(settings.baseUrl);
-  const [format, setFormat] = useState<ApiFormat>(settings.format);
-  const [apiKey, setApiKey] = useState('');
-  const [result, setResult] = useState<ConnectionTest | 'running' | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+export interface ConnectionValues {
+  format: ApiFormat;
+  baseUrl: string;
+  /** Newly typed key; empty keeps the saved one unless clearKey is set. */
+  apiKey: string;
+  clearKey: boolean;
+}
 
-  useEffect(() => setBaseUrl(settings.baseUrl), [settings.baseUrl]);
-  useEffect(() => setFormat(settings.format), [settings.format]);
+interface Props {
+  settings: Settings;
+  value: ConnectionValues;
+  onChange: (patch: Partial<ConnectionValues>) => void;
+  status: ConnectionTest | 'running' | null;
+}
 
-  const dirty = baseUrl.trim() !== settings.baseUrl || apiKey.trim() !== '' || format !== settings.format;
-  const unsaved = { baseUrl: baseUrl.trim(), format, ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}) };
-  const formatInfo = FORMATS.find((f) => f.value === format)!;
-
-  async function test() {
-    setResult('running');
-    setResult(await api.testConnection(unsaved).catch((e) => ({ ok: false as const, error: (e as Error).message })));
-  }
-
-  async function save(patch: SettingsPatch = unsaved) {
-    setSaving(true);
-    setError('');
-    try {
-      const next = await api.saveSettings(patch);
-      setApiKey('');
-      onSaved(next);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  }
+/** Format, URL and key. Editing them reloads the model list below; nothing is saved until the page's save bar. */
+export function ConnectionForm({ settings, value, onChange, status }: Props) {
+  const formatInfo = FORMATS.find((f) => f.value === value.format)!;
+  const keyPlaceholder = value.clearKey
+    ? '保存后会清除已保存的 Key'
+    : settings.apiKeySet
+      ? `已保存 ${settings.apiKeyHint}，留空则保持不变`
+      : '未设置（magpie 本地接口不需要）';
 
   return (
-    <form
-      className="connection"
-      onSubmit={(e) => {
-        e.preventDefault();
-        save();
-      }}
-    >
+    <div className="connection">
       <div className="field">
         <span id="format-label">接口格式</span>
         <div className="segmented" role="radiogroup" aria-labelledby="format-label">
@@ -58,12 +40,9 @@ export function ConnectionForm({ settings, onSaved }: { settings: Settings; onSa
               key={f.value}
               type="button"
               role="radio"
-              aria-checked={format === f.value}
-              className={format === f.value ? 'on' : ''}
-              onClick={() => {
-                setFormat(f.value);
-                setResult(null);
-              }}
+              aria-checked={value.format === f.value}
+              className={value.format === f.value ? 'on' : ''}
+              onClick={() => onChange({ format: f.value })}
             >
               {f.label}
             </button>
@@ -74,11 +53,8 @@ export function ConnectionForm({ settings, onSaved }: { settings: Settings; onSa
       <label>
         <span>服务地址</span>
         <input
-          value={baseUrl}
-          onChange={(e) => {
-            setBaseUrl(e.target.value);
-            setResult(null);
-          }}
+          value={value.baseUrl}
+          onChange={(e) => onChange({ baseUrl: e.target.value })}
           placeholder={`${settings.defaultBaseUrl}，或 ${formatInfo.example}`}
           spellCheck={false}
           inputMode="url"
@@ -88,12 +64,9 @@ export function ConnectionForm({ settings, onSaved }: { settings: Settings; onSa
         <span>API Key</span>
         <input
           type="password"
-          value={apiKey}
-          onChange={(e) => {
-            setApiKey(e.target.value);
-            setResult(null);
-          }}
-          placeholder={settings.apiKeySet ? `已保存 ${settings.apiKeyHint}，留空则保持不变` : '未设置（magpie 本地接口不需要）'}
+          value={value.apiKey}
+          onChange={(e) => onChange({ apiKey: e.target.value, clearKey: false })}
+          placeholder={keyPlaceholder}
           autoComplete="off"
           spellCheck={false}
         />
@@ -101,27 +74,24 @@ export function ConnectionForm({ settings, onSaved }: { settings: Settings; onSa
 
       <div className="connection-actions">
         <span className="connection-status">
-          {result === 'running' && <span className="faint">连接中…</span>}
-          {result && result !== 'running' && (result.ok ? (
-            <span className="ok">连接成功，{(result.ms / 1000).toFixed(1)} 秒，找到 {result.count} 个模型</span>
+          {status === 'running' && <span className="faint">连接中…</span>}
+          {status && status !== 'running' && (status.ok ? (
+            <span className="ok">已连接，{(status.ms / 1000).toFixed(1)} 秒，下面是这个服务的 {status.count} 个模型</span>
           ) : (
-            <span className="error" title={result.error}>连接失败：{result.error}</span>
+            <span className="error" title={status.error}>连接失败：{status.error}</span>
           ))}
-          {error && <span className="error">{error}</span>}
         </span>
-        {settings.apiKeySet && (
-          <button type="button" className="link-btn inline" onClick={() => confirm('清除已保存的 API Key？') && save({ apiKey: '' })}>
+        {settings.apiKeySet && !value.clearKey && (
+          <button type="button" className="link-btn inline" onClick={() => onChange({ apiKey: '', clearKey: true })}>
             清除 Key
           </button>
         )}
-        {settings.baseUrl !== settings.defaultBaseUrl && (
-          <button type="button" className="link-btn inline" onClick={() => save({ baseUrl: '' })}>
+        {value.baseUrl.trim() !== settings.defaultBaseUrl && (
+          <button type="button" className="link-btn inline" onClick={() => onChange({ baseUrl: settings.defaultBaseUrl })}>
             恢复默认地址
           </button>
         )}
-        <button type="button" className="btn" onClick={test} disabled={result === 'running'}>测试连接</button>
-        <button type="submit" className="btn primary" disabled={!dirty || saving}>{saving ? '保存中…' : '保存'}</button>
       </div>
-    </form>
+    </div>
   );
 }

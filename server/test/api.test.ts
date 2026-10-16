@@ -282,3 +282,27 @@ test('API format is a setting passed to enrichment', async () => {
     close();
   }
 });
+
+test('model list and model test follow the unsaved connection', async () => {
+  const lister: ModelLister = async (conn) =>
+    conn.format === 'claude' ? [{ id: 'claude-x', name: 'X', provider: 'claude', contextWindow: null, reasoning: false }] : fakeModels();
+  const calls: string[] = [];
+  const { call, close } = await start(async (text, sentence, opts) => {
+    calls.push(`${opts.format}|${opts.baseUrl}|${opts.model}`);
+    return fakeEnrich(text, sentence, opts);
+  }, lister);
+  try {
+    const draft = (await call('POST', '/api/connection/test', { format: 'claude' })).body;
+    assert.deepEqual(draft.items.map((m: { id: string }) => m.id), ['claude-x']);
+    assert.equal((await call('GET', '/api/settings')).body.format, 'openai', 'listing does not save');
+
+    await call('POST', '/api/models/test', { model: 'claude-x', format: 'claude', baseUrl: 'http://other/v1' });
+    assert.deepEqual(calls, ['claude|http://other/v1|claude-x']);
+
+    // Connection and model are saved together.
+    const s = (await call('PUT', '/api/settings', { format: 'claude', baseUrl: 'http://other/v1', model: 'claude-x' })).body;
+    assert.deepEqual([s.format, s.baseUrl, s.model], ['claude', 'http://other/v1', 'claude-x']);
+  } finally {
+    close();
+  }
+});

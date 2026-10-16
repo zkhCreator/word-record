@@ -142,17 +142,24 @@ export function createApp(repo: Repo, deps: Deps, opts: { webDist?: string; allo
     res.json(settingsView());
   });
 
-  /** Checks a (possibly unsaved) URL/key by listing models. A missing apiKey means "use the saved key". */
-  app.post('/api/connection/test', async (req, res) => {
+  /** Connection from the request body (unsaved form values), falling back to the saved one field by field. */
+  const draftConnection = (body: any): Connection | { error: string } => {
     const saved = currentConnection();
-    const baseUrl = typeof req.body?.baseUrl === 'string' && req.body.baseUrl.trim() ? req.body.baseUrl.trim() : saved.baseUrl;
-    const apiKey = typeof req.body?.apiKey === 'string' ? req.body.apiKey.trim() : saved.apiKey;
-    const format = asFormat(req.body?.format) ?? saved.format;
-    if (!validBaseUrl(baseUrl)) return res.json({ ok: false, error: '服务地址必须是 http:// 或 https:// 开头的 URL' });
+    const baseUrl = typeof body?.baseUrl === 'string' && body.baseUrl.trim() ? body.baseUrl.trim() : saved.baseUrl;
+    const apiKey = typeof body?.apiKey === 'string' ? body.apiKey.trim() : saved.apiKey;
+    const format = asFormat(body?.format) ?? saved.format;
+    if (!validBaseUrl(baseUrl)) return { error: '服务地址必须是 http:// 或 https:// 开头的 URL' };
+    return { baseUrl, apiKey, format };
+  };
+
+  /** Lists models for a (possibly unsaved) connection, so the model picker follows the form. A missing apiKey means "use the saved key". */
+  app.post('/api/connection/test', async (req, res) => {
+    const conn = draftConnection(req.body);
+    if ('error' in conn) return res.json({ ok: false, error: conn.error });
     const started = Date.now();
     try {
-      const models = await listModels({ baseUrl, apiKey, format });
-      res.json({ ok: true, ms: Date.now() - started, count: models.length });
+      const items = await listModels(conn);
+      res.json({ ok: true, ms: Date.now() - started, count: items.length, items });
     } catch (err) {
       res.json({ ok: false, ms: Date.now() - started, error: (err as Error).message });
     }
@@ -168,9 +175,11 @@ export function createApp(repo: Repo, deps: Deps, opts: { webDist?: string; allo
 
   app.post('/api/models/test', async (req, res) => {
     const model = typeof req.body?.model === 'string' && req.body.model.trim() ? req.body.model.trim() : currentModel();
+    const conn = draftConnection(req.body);
+    if ('error' in conn) return res.json({ ok: false, model, ms: 0, error: conn.error });
     const started = Date.now();
     try {
-      const r = await enrich('ephemeral', 'Fame in the age of social media is often ephemeral.', callOptions(model));
+      const r = await enrich('ephemeral', 'Fame in the age of social media is often ephemeral.', { ...conn, model });
       res.json({ ok: true, model, ms: Date.now() - started, lemma: r.lemma, meaning: r.meaning });
     } catch (err) {
       res.json({ ok: false, model, ms: Date.now() - started, error: (err as Error).message });

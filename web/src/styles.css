@@ -391,6 +391,13 @@ kbd {
 .model-test { display: flex; align-items: center; gap: 10px; font-size: 13px; max-width: 46%; }
 .model-test > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .custom-model { display: flex; gap: 8px; }
+.save-bar {
+  position: sticky; bottom: 16px; margin-top: 32px; z-index: 10;
+  display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+  background: var(--sheet); border: 1px solid var(--ink-soft); border-radius: 12px; font-size: 14px;
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--ink) 16%, transparent);
+}
+.save-bar > span { margin-right: auto; min-width: 0; }
 .custom-model input { flex: 1; font: inherit; color: var(--ink); background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 7px 10px; }
 
 @media (max-width: 899px) {

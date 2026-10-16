@@ -33,7 +33,7 @@ npm start          # 构建 Web 应用并启动服务：http://127.0.0.1:5178
 - **解析**（magpie）：原形（running → run，took into account → take into account）、音标、词性、词形说明、语境含义及原因、整句翻译、英文释义、常见释义和例句。
 - **词库**：大字显示原词，可以朗读；按日期分组，支持搜索和单词/短语筛选；每条语境里的目标词都会高亮；可以写笔记、重新解析、手动添加。
 - **同词聚合**：同一个词的不同形式会自动归到一个词条，例如 running / ran / runs 都归入 run，took / taking into account 都归入 take into account。每个形式和它所在的句子都会保留，复习时只算一张卡片。如果模型给的原形不一致，可以在词条底部用「合并到…」手动合并。
-- **模型服务**：「设置」页可以选接口格式（OpenAI Chat Completions、Codex 即 OpenAI Responses、Claude 即 Anthropic Messages），并修改服务地址和 API Key，默认是 magpie 的本地接口。保存前可以先「测试连接」。Key 只保存在本机数据库里，接口只返回打码后的提示（如 ••••abcd）。
+- **模型服务**：「设置」页可以选接口格式（OpenAI Chat Completions、Codex 即 OpenAI Responses、Claude 即 Anthropic Messages），并修改服务地址和 API Key，默认是 magpie 的本地接口。修改格式、地址或 Key 时，下面的模型列表会立刻换成这个服务的，模型测试也走正在编辑的服务；服务和模型一起保存，不会出现「新服务 + 旧模型」的情况。Key 只保存在本机数据库里，接口只返回打码后的提示（如 ••••abcd）。
 - **模型切换**：「设置」页列出 magpie 当前提供的全部模型（按 Claude / Codex / Kiro / Antigravity 分组），一键切换，也可以先「测试」确认能用（会显示耗时或具体错误，例如账号登录过期）。选择保存在 SQLite 里，每个词条会记录是哪个模型解析的。
 - **复习**：卡片正面是原词加原句，回想后显示释义，再按 `1 忘了 / 2 模糊 / 3 记得` 打分。复习间隔依次为 5 分钟、30 分钟、12 小时、1、2、4、7、15、30、60、120 天：
   - 记得：进入下一个间隔

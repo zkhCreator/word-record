@@ -86,7 +86,10 @@ export interface Settings {
 
 export interface SettingsPatch { model?: string; baseUrl?: string; apiKey?: string; format?: ApiFormat }
 
-export type ConnectionTest = { ok: true; ms: number; count: number } | { ok: false; ms?: number; error: string };
+export type ConnectionTest = { ok: true; ms: number; count: number; items: ModelInfo[] } | { ok: false; ms?: number; error: string };
+
+/** Connection values typed into the form; apiKey omitted means "keep the saved key". */
+export interface ConnectionDraft { baseUrl: string; format: ApiFormat; apiKey?: string }
 
 export type ModelTest =
   | { ok: true; model: string; ms: number; lemma: string; meaning: string }
@@ -126,10 +129,11 @@ export const api = {
     request<{ review: ReviewState; preview: Record<Grade, number> }>(`/api/review/${id}`, { method: 'POST', body: JSON.stringify({ grade }) }),
   settings: () => request<Settings>('/api/settings'),
   saveSettings: (patch: SettingsPatch) => request<Settings>('/api/settings', { method: 'PUT', body: JSON.stringify(patch) }),
-  testConnection: (body: { baseUrl?: string; apiKey?: string; format?: ApiFormat }) =>
+  testConnection: (body: Partial<ConnectionDraft>) =>
     request<ConnectionTest>('/api/connection/test', { method: 'POST', body: JSON.stringify(body) }),
   models: () => request<{ items: ModelInfo[]; current: string }>('/api/models'),
-  testModel: (model: string) => request<ModelTest>('/api/models/test', { method: 'POST', body: JSON.stringify({ model }) }),
+  testModel: (model: string, conn?: Partial<ConnectionDraft>) =>
+    request<ModelTest>('/api/models/test', { method: 'POST', body: JSON.stringify({ ...conn, model }) }),
   capture: (body: { text: string; sentence: string }) =>
     request<{ entry: Entry; context: Context; created: boolean; merged: boolean }>('/api/entries', { method: 'POST', body: JSON.stringify(body) }),
 };
