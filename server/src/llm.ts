@@ -14,10 +14,15 @@ export interface Enrichment {
   examples: { en: string; zh: string }[];
 }
 
-/** Where and how to reach the OpenAI-compatible model service (magpie by default). */
+/** Request/response shape of the model service. */
+export type ApiFormat = 'openai' | 'codex' | 'claude';
+export const API_FORMATS: ApiFormat[] = ['openai', 'codex', 'claude'];
+
+/** Where and how to reach the model service (magpie by default). */
 export interface Connection {
   baseUrl: string;
   apiKey: string;
+  format: ApiFormat;
 }
 
 export interface CallOptions extends Connection {
@@ -36,10 +41,22 @@ export interface ModelInfo {
 
 export type ModelLister = (conn: Connection) => Promise<ModelInfo[]>;
 
-const headers = (conn: Connection) => ({
-  'content-type': 'application/json',
-  ...(conn.apiKey ? { authorization: `Bearer ${conn.apiKey}` } : {}),
-});
+function headers(conn: Connection): Record<string, string> {
+  if (conn.format === 'claude') {
+    return { 'content-type': 'application/json', 'anthropic-version': '2023-06-01', ...(conn.apiKey ? { 'x-api-key': conn.apiKey } : {}) };
+  }
+  return { 'content-type': 'application/json', ...(conn.apiKey ? { authorization: `Bearer ${conn.apiKey}` } : {}) };
+}
+
+/** A bare host (https://api.anthropic.com) gets the conventional /v1 prefix. */
+export function apiBase(baseUrl: string) {
+  const trimmed = baseUrl.replace(/\/+$/, '');
+  try {
+    return new URL(trimmed).pathname === '/' ? `${trimmed}/v1` : trimmed;
+  } catch {
+    return trimmed;
+  }
+}
 
 /** fetch with network failures reported as "can't reach <url> (ECONNREFUSED)" instead of "fetch failed". */
 async function call(url: string, init: RequestInit) {
@@ -52,7 +69,42 @@ async function call(url: string, init: RequestInit) {
   }
 }
 
-const endpoint = (conn: Connection, path: string) => `${conn.baseUrl.replace(/\/+$/, '')}${path}`;
+type Json = Record<string, any>;
+
+/** One system + user turn, in whichever wire format the service speaks; returns the reply text. */
+export async function complete(opts: CallOptions, system: string, user: string, maxTokens: number) {
+  const { model, format } = opts;
+  const base = apiBase(opts.baseUrl);
+  const [path, body] =
+    format === 'claude'
+      ? ['/messages', { model, max_tokens: maxTokens, system, messages: [{ role: 'user', content: user }] }]
+      : format === 'codex'
+        ? ['/responses', { model, instructions: system, input: user, max_output_tokens: maxTokens }]
+        : ['/chat/completions', { model, max_tokens: maxTokens, messages: [{ role: 'system', content: system }, { role: 'user', content: user }] }];
+  const res = await call(base + path, {
+    method: 'POST',
+    signal: AbortSignal.timeout(config.magpie.timeoutMs),
+    headers: headers(opts),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res));
+  return replyText(format, (await res.json()) as Json);
+}
+
+export function replyText(format: ApiFormat, body: Json): string {
+  if (format === 'claude') {
+    return (body.content ?? []).filter((c: Json) => c?.type === 'text').map((c: Json) => c.text).join('');
+  }
+  if (format === 'codex') {
+    if (typeof body.output_text === 'string') return body.output_text;
+    return (body.output ?? [])
+      .flatMap((item: Json) => item?.content ?? [])
+      .filter((c: Json) => c?.type === 'output_text')
+      .map((c: Json) => c.text)
+      .join('');
+  }
+  return body.choices?.[0]?.message?.content ?? '';
+}
 
 const SYSTEM_PROMPT = `You are an English dictionary assistant for a Chinese-speaking learner.
 Given a selected English word or phrase and the sentence it appeared in, return ONLY a JSON object with these keys:
@@ -69,23 +121,8 @@ Given a selected English word or phrase and the sentence it appeared in, return 
 - "examples": 2 short new example sentences using this sense, each {"en": "...", "zh": "..."}
 No markdown, no commentary.`;
 
-export const magpieEnricher: Enricher = async (text, sentence, { model, ...conn }) => {
-  const res = await call(endpoint(conn, '/chat/completions'), {
-    method: 'POST',
-    signal: AbortSignal.timeout(config.magpie.timeoutMs),
-    headers: headers(conn),
-    body: JSON.stringify({
-      model,
-      max_tokens: 1200,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: `Selected: ${text}\nSentence: ${sentence || '(no context)'}` },
-      ],
-    }),
-  });
-  if (!res.ok) throw new Error(await errorMessage(res));
-  const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-  const content = body.choices?.[0]?.message?.content ?? '';
+export const llmEnricher: Enricher = async (text, sentence, opts) => {
+  const content = await complete(opts, SYSTEM_PROMPT, `Selected: ${text}\nSentence: ${sentence || '(no context)'}`, 2000);
   return normalize(parseJson(content), text);
 };
 
@@ -98,17 +135,18 @@ async function errorMessage(res: Response) {
   return `HTTP ${res.status}: ${raw.slice(0, 300)}`;
 }
 
-/** Text chat models magpie exposes (image-generation and disabled entries are skipped). */
-export const magpieModels: ModelLister = async (conn) => {
-  const res = await call(endpoint(conn, '/models'), { headers: headers(conn), signal: AbortSignal.timeout(8000) });
+/** Text chat models the service exposes (image-generation and disabled entries are skipped). */
+export const llmModels: ModelLister = async (conn) => {
+  const url = `${apiBase(conn.baseUrl)}/models${conn.format === 'claude' ? '?limit=1000' : ''}`;
+  const res = await call(url, { headers: headers(conn), signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error(await errorMessage(res));
-  const body = (await res.json()) as { data?: Record<string, unknown>[] };
+  const body = (await res.json()) as { data?: Json[] };
   return (body.data ?? [])
-    .filter((m) => typeof m.id === 'string' && !/image|disabled/i.test(m.id as string))
+    .filter((m) => typeof m.id === 'string' && !/image|disabled/i.test(m.id))
     .map((m) => ({
-      id: m.id as string,
-      name: (m.display_name as string) || (m.id as string),
-      provider: (m.owned_by as string) || (m.id as string).split('/')[0],
+      id: m.id,
+      name: m.display_name || m.id,
+      provider: m.owned_by || (m.id.includes('/') ? m.id.split('/')[0] : conn.format === 'claude' ? 'claude' : 'models'),
       contextWindow: typeof m.context_window === 'number' ? m.context_window : null,
       reasoning: m.reasoning === true,
     }));

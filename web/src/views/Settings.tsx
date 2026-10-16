@@ -75,13 +75,14 @@ export function SettingsView() {
       <section className="settings-section">
         <h2 className="section-title">模型服务</h2>
         <p className="faint">
-          任意 OpenAI 兼容接口都可以，默认是 magpie 的本地接口。API Key 只保存在本机数据库里，不会再发回浏览器。
+          支持 OpenAI（Chat Completions）、Codex（OpenAI Responses）和 Claude（Anthropic Messages）三种接口格式，默认是 magpie 的本地接口。API Key 只保存在本机数据库里，不会再发回浏览器。
         </p>
         {settings && (
           <ConnectionForm
             settings={settings}
             onSaved={(next) => {
-              const reconnect = next.baseUrl !== settings.baseUrl || next.apiKeyHint !== settings.apiKeyHint;
+              const reconnect =
+                next.baseUrl !== settings.baseUrl || next.apiKeyHint !== settings.apiKeyHint || next.format !== settings.format;
               setSettings(next);
               if (reconnect) loadModels();
             }}

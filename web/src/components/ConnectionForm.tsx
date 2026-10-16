@@ -1,18 +1,27 @@
 import { useEffect, useState } from 'react';
-import { api, type ConnectionTest, type Settings, type SettingsPatch } from '../api';
+import { api, type ApiFormat, type ConnectionTest, type Settings, type SettingsPatch } from '../api';
+
+const FORMATS: { value: ApiFormat; label: string; path: string; example: string }[] = [
+  { value: 'openai', label: 'OpenAI', path: '/chat/completions', example: 'https://api.openai.com/v1' },
+  { value: 'codex', label: 'Codex', path: '/responses', example: 'https://api.openai.com/v1' },
+  { value: 'claude', label: 'Claude', path: '/messages', example: 'https://api.anthropic.com' },
+];
 
 /** Service URL + API key. The saved key is never shown; leaving the field empty keeps it. */
 export function ConnectionForm({ settings, onSaved }: { settings: Settings; onSaved: (s: Settings) => void }) {
   const [baseUrl, setBaseUrl] = useState(settings.baseUrl);
+  const [format, setFormat] = useState<ApiFormat>(settings.format);
   const [apiKey, setApiKey] = useState('');
   const [result, setResult] = useState<ConnectionTest | 'running' | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => setBaseUrl(settings.baseUrl), [settings.baseUrl]);
+  useEffect(() => setFormat(settings.format), [settings.format]);
 
-  const dirty = baseUrl.trim() !== settings.baseUrl || apiKey.trim() !== '';
-  const unsaved = { baseUrl: baseUrl.trim(), ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}) };
+  const dirty = baseUrl.trim() !== settings.baseUrl || apiKey.trim() !== '' || format !== settings.format;
+  const unsaved = { baseUrl: baseUrl.trim(), format, ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}) };
+  const formatInfo = FORMATS.find((f) => f.value === format)!;
 
   async function test() {
     setResult('running');
@@ -41,6 +50,27 @@ export function ConnectionForm({ settings, onSaved }: { settings: Settings; onSa
         save();
       }}
     >
+      <div className="field">
+        <span id="format-label">接口格式</span>
+        <div className="segmented" role="radiogroup" aria-labelledby="format-label">
+          {FORMATS.map((f) => (
+            <button
+              key={f.value}
+              type="button"
+              role="radio"
+              aria-checked={format === f.value}
+              className={format === f.value ? 'on' : ''}
+              onClick={() => {
+                setFormat(f.value);
+                setResult(null);
+              }}
+            >
+              {f.label}
+            </button>
+          ))}
+          <span className="faint format-path">POST …{formatInfo.path}</span>
+        </div>
+      </div>
       <label>
         <span>服务地址</span>
         <input
@@ -49,7 +79,7 @@ export function ConnectionForm({ settings, onSaved }: { settings: Settings; onSa
             setBaseUrl(e.target.value);
             setResult(null);
           }}
-          placeholder={settings.defaultBaseUrl}
+          placeholder={`${settings.defaultBaseUrl}，或 ${formatInfo.example}`}
           spellCheck={false}
           inputMode="url"
         />

@@ -71,7 +71,11 @@ export interface ModelInfo {
   reasoning: boolean;
 }
 
+export type ApiFormat = 'openai' | 'codex' | 'claude';
+
 export interface Settings {
+  format: ApiFormat;
+  defaultFormat: ApiFormat;
   model: string;
   defaultModel: string;
   baseUrl: string;
@@ -80,7 +84,7 @@ export interface Settings {
   apiKeyHint: string;
 }
 
-export interface SettingsPatch { model?: string; baseUrl?: string; apiKey?: string }
+export interface SettingsPatch { model?: string; baseUrl?: string; apiKey?: string; format?: ApiFormat }
 
 export type ConnectionTest = { ok: true; ms: number; count: number } | { ok: false; ms?: number; error: string };
 
@@ -122,7 +126,7 @@ export const api = {
     request<{ review: ReviewState; preview: Record<Grade, number> }>(`/api/review/${id}`, { method: 'POST', body: JSON.stringify({ grade }) }),
   settings: () => request<Settings>('/api/settings'),
   saveSettings: (patch: SettingsPatch) => request<Settings>('/api/settings', { method: 'PUT', body: JSON.stringify(patch) }),
-  testConnection: (body: { baseUrl?: string; apiKey?: string }) =>
+  testConnection: (body: { baseUrl?: string; apiKey?: string; format?: ApiFormat }) =>
     request<ConnectionTest>('/api/connection/test', { method: 'POST', body: JSON.stringify(body) }),
   models: () => request<{ items: ModelInfo[]; current: string }>('/api/models'),
   testModel: (model: string) => request<ModelTest>('/api/models/test', { method: 'POST', body: JSON.stringify({ model }) }),

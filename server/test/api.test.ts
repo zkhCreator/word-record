@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { openDb } from '../src/db.ts';
 import { Repo, normalizeText } from '../src/repo.ts';
 import { createApp, isAllowedOrigin } from '../src/app.ts';
-import { normalize, parseJson, type Enricher, type ModelLister } from '../src/magpie.ts';
+import { apiBase, normalize, parseJson, replyText, type Enricher, type ModelLister } from '../src/llm.ts';
 
 const fakeEnrich: Enricher = async (text, sentence) =>
   normalize({ lemma: text.replace(/ing$/, ''), meaning: `义:${sentence.length}`, translation: '译文' }, text);
@@ -20,7 +20,7 @@ async function start(enrich: Enricher = fakeEnrich, listModels: ModelLister = fa
     enrich,
     listModels,
     defaultModel: 'claude/a',
-    defaultConnection: { baseUrl: 'http://127.0.0.1:3425/v1', apiKey: '' },
+    defaultConnection: { baseUrl: 'http://127.0.0.1:3425/v1', apiKey: '', format: 'openai' },
   }).listen(0);
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -219,8 +219,8 @@ test('only the app and the extension may call the API', async () => {
 
 test('custom service URL and API key', async () => {
   const seen: { baseUrl: string; apiKey: string }[] = [];
-  const lister = async (conn: { baseUrl: string; apiKey: string }) => {
-    seen.push(conn);
+  const lister: ModelLister = async (conn) => {
+    seen.push({ baseUrl: conn.baseUrl, apiKey: conn.apiKey });
     if (conn.apiKey === 'bad') throw new Error('HTTP 401: invalid key');
     return fakeModels();
   };
@@ -252,6 +252,32 @@ test('custom service URL and API key', async () => {
     s = (await call('PUT', '/api/settings', { baseUrl: '', apiKey: '' })).body;
     assert.equal(s.baseUrl, 'http://127.0.0.1:3425/v1');
     assert.equal(s.apiKeySet, false);
+  } finally {
+    close();
+  }
+});
+
+test('reply text is read from each API format', () => {
+  assert.equal(replyText('openai', { choices: [{ message: { content: 'a' } }] }), 'a');
+  assert.equal(replyText('codex', { output: [{ type: 'reasoning' }, { type: 'message', content: [{ type: 'output_text', text: 'b' }] }] }), 'b');
+  assert.equal(replyText('codex', { output_text: 'b2' }), 'b2');
+  assert.equal(replyText('claude', { content: [{ type: 'thinking', thinking: 'x' }, { type: 'text', text: 'c' }] }), 'c');
+  assert.equal(apiBase('https://api.anthropic.com/'), 'https://api.anthropic.com/v1');
+  assert.equal(apiBase('http://127.0.0.1:3425/v1/'), 'http://127.0.0.1:3425/v1');
+});
+
+test('API format is a setting passed to enrichment', async () => {
+  const formats: string[] = [];
+  const { call, close } = await start(async (text, sentence, opts) => {
+    formats.push(opts.format);
+    return fakeEnrich(text, sentence, opts);
+  });
+  try {
+    assert.equal((await call('GET', '/api/settings')).body.format, 'openai');
+    assert.equal((await call('PUT', '/api/settings', { format: 'gemini' })).status, 400);
+    assert.equal((await call('PUT', '/api/settings', { format: 'claude' })).body.format, 'claude');
+    await call('POST', '/api/entries', { text: 'terse', sentence: 'A terse reply.' });
+    assert.deepEqual(formats, ['claude']);
   } finally {
     close();
   }

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import type { Repo } from './repo.ts';
-import type { Connection, Enricher, ModelLister } from './magpie.ts';
+import { API_FORMATS, type ApiFormat, type Connection, type Enricher, type ModelLister } from './llm.ts';
 import { config } from './config.ts';
 import { GRADES, MASTERED_STAGE, INTERVALS, preview, type Grade } from './srs.ts';
 
@@ -46,10 +46,16 @@ export function createApp(repo: Repo, deps: Deps, opts: { webDist?: string; allo
   const { enrich, listModels } = deps;
   const defaultModel = deps.defaultModel ?? config.magpie.model;
   const currentModel = () => repo.getSetting('model') || defaultModel;
-  const defaultConnection = deps.defaultConnection ?? { baseUrl: config.magpie.baseUrl, apiKey: config.magpie.apiKey };
+  const asFormat = (v: unknown): ApiFormat | undefined => (API_FORMATS.includes(v as ApiFormat) ? (v as ApiFormat) : undefined);
+  const defaultConnection: Connection = deps.defaultConnection ?? {
+    baseUrl: config.magpie.baseUrl,
+    apiKey: config.magpie.apiKey,
+    format: asFormat(config.magpie.format) ?? 'openai',
+  };
   const currentConnection = (): Connection => ({
     baseUrl: repo.getSetting('baseUrl') || defaultConnection.baseUrl,
     apiKey: repo.getSetting('apiKey') ?? defaultConnection.apiKey,
+    format: asFormat(repo.getSetting('apiFormat')) ?? defaultConnection.format,
   });
   const callOptions = (model = currentModel()) => ({ ...currentConnection(), model });
 
@@ -61,6 +67,8 @@ export function createApp(repo: Repo, deps: Deps, opts: { webDist?: string; allo
       defaultModel,
       baseUrl: conn.baseUrl,
       defaultBaseUrl: defaultConnection.baseUrl,
+      format: conn.format,
+      defaultFormat: defaultConnection.format,
       apiKeySet: !!conn.apiKey,
       apiKeyHint: maskKey(conn.apiKey),
     };
@@ -114,7 +122,8 @@ export function createApp(repo: Repo, deps: Deps, opts: { webDist?: string; allo
 
   /** Fields left out stay unchanged; an empty baseUrl restores the default, an empty apiKey clears it. */
   app.put('/api/settings', (req, res) => {
-    const { model, baseUrl, apiKey } = req.body ?? {};
+    const { model, baseUrl, apiKey, format } = req.body ?? {};
+    if (format !== undefined && !asFormat(format)) return res.status(400).json({ error: `format must be one of ${API_FORMATS.join(', ')}` });
     if (model !== undefined && (typeof model !== 'string' || !model.trim())) {
       return res.status(400).json({ error: 'model must be a non-empty string' });
     }
@@ -129,6 +138,7 @@ export function createApp(repo: Repo, deps: Deps, opts: { webDist?: string; allo
       else repo.deleteSetting('baseUrl');
     }
     if (typeof apiKey === 'string') repo.setSetting('apiKey', apiKey.trim());
+    if (format) repo.setSetting('apiFormat', format);
     res.json(settingsView());
   });
 
@@ -137,10 +147,11 @@ export function createApp(repo: Repo, deps: Deps, opts: { webDist?: string; allo
     const saved = currentConnection();
     const baseUrl = typeof req.body?.baseUrl === 'string' && req.body.baseUrl.trim() ? req.body.baseUrl.trim() : saved.baseUrl;
     const apiKey = typeof req.body?.apiKey === 'string' ? req.body.apiKey.trim() : saved.apiKey;
+    const format = asFormat(req.body?.format) ?? saved.format;
     if (!validBaseUrl(baseUrl)) return res.json({ ok: false, error: '服务地址必须是 http:// 或 https:// 开头的 URL' });
     const started = Date.now();
     try {
-      const models = await listModels({ baseUrl, apiKey });
+      const models = await listModels({ baseUrl, apiKey, format });
       res.json({ ok: true, ms: Date.now() - started, count: models.length });
     } catch (err) {
       res.json({ ok: false, ms: Date.now() - started, error: (err as Error).message });

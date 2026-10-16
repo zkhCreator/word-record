@@ -14,6 +14,8 @@ export const config = {
     baseUrl: process.env.WR_MAGPIE_URL ?? 'http://127.0.0.1:3425/v1',
     model: process.env.WR_MODEL ?? 'claude/claude-haiku-5-5',
     apiKey: process.env.WR_MAGPIE_KEY ?? '',
+    /** openai (Chat Completions), codex (OpenAI Responses) or claude (Anthropic Messages). */
+    format: process.env.WR_API_FORMAT ?? 'openai',
     timeoutMs: Number(process.env.WR_MAGPIE_TIMEOUT ?? 45000),
   },
 };

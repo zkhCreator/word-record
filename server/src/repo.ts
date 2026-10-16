@@ -1,5 +1,5 @@
 import type { DB } from './db.ts';
-import type { Enrichment } from './magpie.ts';
+import type { Enrichment } from './llm.ts';
 import { initialState, schedule, MASTERED_STAGE, type Grade, type ReviewState } from './srs.ts';
 
 export interface Context {
