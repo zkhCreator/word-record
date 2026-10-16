@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import type { Repo } from './repo.ts';
-import type { Enricher, ModelLister } from './magpie.ts';
+import type { Connection, Enricher, ModelLister } from './magpie.ts';
 import { config } from './config.ts';
 import { GRADES, MASTERED_STAGE, INTERVALS, preview, type Grade } from './srs.ts';
 
@@ -10,6 +10,18 @@ export interface Deps {
   enrich: Enricher;
   listModels: ModelLister;
   defaultModel?: string;
+  defaultConnection?: Connection;
+}
+
+const maskKey = (key: string) => (key ? `••••${key.slice(-4)}` : '');
+
+function validBaseUrl(value: string) {
+  try {
+    const u = new URL(value);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 const LOCAL_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
@@ -34,6 +46,25 @@ export function createApp(repo: Repo, deps: Deps, opts: { webDist?: string; allo
   const { enrich, listModels } = deps;
   const defaultModel = deps.defaultModel ?? config.magpie.model;
   const currentModel = () => repo.getSetting('model') || defaultModel;
+  const defaultConnection = deps.defaultConnection ?? { baseUrl: config.magpie.baseUrl, apiKey: config.magpie.apiKey };
+  const currentConnection = (): Connection => ({
+    baseUrl: repo.getSetting('baseUrl') || defaultConnection.baseUrl,
+    apiKey: repo.getSetting('apiKey') ?? defaultConnection.apiKey,
+  });
+  const callOptions = (model = currentModel()) => ({ ...currentConnection(), model });
+
+  // The key itself never leaves the server; the UI only gets a masked hint.
+  const settingsView = () => {
+    const conn = currentConnection();
+    return {
+      model: currentModel(),
+      defaultModel,
+      baseUrl: conn.baseUrl,
+      defaultBaseUrl: defaultConnection.baseUrl,
+      apiKeySet: !!conn.apiKey,
+      apiKeyHint: maskKey(conn.apiKey),
+    };
+  };
   const app = express();
   const extraOrigins = opts.allowedOrigins ?? config.allowedOrigins;
 
@@ -60,7 +91,7 @@ export function createApp(repo: Repo, deps: Deps, opts: { webDist?: string; allo
     const entry = repo.getEntry(entryId)!;
     const model = currentModel();
     try {
-      const result = await enrich(text, sentence, model);
+      const result = await enrich(text, sentence, callOptions(model));
       repo.applyEnrichment(entryId, contextId, result, entry.enrich_status !== 'done', model);
       const existing = aggregate ? repo.findByLemma(result.lemma, entryId) : undefined;
       if (existing) {
@@ -78,21 +109,49 @@ export function createApp(repo: Repo, deps: Deps, opts: { webDist?: string; allo
   });
 
   app.get('/api/settings', (_req, res) => {
-    res.json({ model: currentModel(), defaultModel, magpieUrl: config.magpie.baseUrl });
+    res.json(settingsView());
   });
 
+  /** Fields left out stay unchanged; an empty baseUrl restores the default, an empty apiKey clears it. */
   app.put('/api/settings', (req, res) => {
-    const { model } = req.body ?? {};
-    if (typeof model !== 'string' || !model.trim()) return res.status(400).json({ error: 'model is required' });
-    repo.setSetting('model', model.trim());
-    res.json({ model: currentModel(), defaultModel, magpieUrl: config.magpie.baseUrl });
+    const { model, baseUrl, apiKey } = req.body ?? {};
+    if (model !== undefined && (typeof model !== 'string' || !model.trim())) {
+      return res.status(400).json({ error: 'model must be a non-empty string' });
+    }
+    if (baseUrl !== undefined && (typeof baseUrl !== 'string' || (baseUrl.trim() && !validBaseUrl(baseUrl.trim())))) {
+      return res.status(400).json({ error: '服务地址必须是 http:// 或 https:// 开头的 URL' });
+    }
+    if (apiKey !== undefined && typeof apiKey !== 'string') return res.status(400).json({ error: 'apiKey must be a string' });
+
+    if (typeof model === 'string') repo.setSetting('model', model.trim());
+    if (typeof baseUrl === 'string') {
+      if (baseUrl.trim()) repo.setSetting('baseUrl', baseUrl.trim().replace(/\/+$/, ''));
+      else repo.deleteSetting('baseUrl');
+    }
+    if (typeof apiKey === 'string') repo.setSetting('apiKey', apiKey.trim());
+    res.json(settingsView());
+  });
+
+  /** Checks a (possibly unsaved) URL/key by listing models. A missing apiKey means "use the saved key". */
+  app.post('/api/connection/test', async (req, res) => {
+    const saved = currentConnection();
+    const baseUrl = typeof req.body?.baseUrl === 'string' && req.body.baseUrl.trim() ? req.body.baseUrl.trim() : saved.baseUrl;
+    const apiKey = typeof req.body?.apiKey === 'string' ? req.body.apiKey.trim() : saved.apiKey;
+    if (!validBaseUrl(baseUrl)) return res.json({ ok: false, error: '服务地址必须是 http:// 或 https:// 开头的 URL' });
+    const started = Date.now();
+    try {
+      const models = await listModels({ baseUrl, apiKey });
+      res.json({ ok: true, ms: Date.now() - started, count: models.length });
+    } catch (err) {
+      res.json({ ok: false, ms: Date.now() - started, error: (err as Error).message });
+    }
   });
 
   app.get('/api/models', async (_req, res) => {
     try {
-      res.json({ items: await listModels(), current: currentModel() });
+      res.json({ items: await listModels(currentConnection()), current: currentModel() });
     } catch (err) {
-      res.status(502).json({ error: `无法从 magpie 获取模型列表：${(err as Error).message}` });
+      res.status(502).json({ error: `无法获取模型列表：${(err as Error).message}` });
     }
   });
 
@@ -100,7 +159,7 @@ export function createApp(repo: Repo, deps: Deps, opts: { webDist?: string; allo
     const model = typeof req.body?.model === 'string' && req.body.model.trim() ? req.body.model.trim() : currentModel();
     const started = Date.now();
     try {
-      const r = await enrich('ephemeral', 'Fame in the age of social media is often ephemeral.', model);
+      const r = await enrich('ephemeral', 'Fame in the age of social media is often ephemeral.', callOptions(model));
       res.json({ ok: true, model, ms: Date.now() - started, lemma: r.lemma, meaning: r.meaning });
     } catch (err) {
       res.json({ ok: false, model, ms: Date.now() - started, error: (err as Error).message });

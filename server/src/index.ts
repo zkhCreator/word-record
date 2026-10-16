@@ -12,5 +12,5 @@ const app = createApp(repo, { enrich: magpieEnricher, listModels: magpieModels }
 app.listen(config.port, config.host, () => {
   console.log(`word-record server  http://${config.host}:${config.port}`);
   console.log(`  db     ${config.dbPath}`);
-  console.log(`  magpie ${config.magpie.baseUrl}  (model: ${repo.getSetting('model') || config.magpie.model})`);
+  console.log(`  models ${repo.getSetting('baseUrl') || config.magpie.baseUrl}  (${repo.getSetting('model') || config.magpie.model})`);
 });

@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { openDb } from '../src/db.ts';
 import { Repo, normalizeText } from '../src/repo.ts';
 import { createApp, isAllowedOrigin } from '../src/app.ts';
-import { normalize, parseJson, type Enricher } from '../src/magpie.ts';
+import { normalize, parseJson, type Enricher, type ModelLister } from '../src/magpie.ts';
 
 const fakeEnrich: Enricher = async (text, sentence) =>
   normalize({ lemma: text.replace(/ing$/, ''), meaning: `义:${sentence.length}`, translation: '译文' }, text);
@@ -14,9 +14,14 @@ const fakeModels = async () => [
   { id: 'codex/b', name: 'B', provider: 'codex', contextWindow: null, reasoning: false },
 ];
 
-async function start(enrich: Enricher = fakeEnrich) {
+async function start(enrich: Enricher = fakeEnrich, listModels: ModelLister = fakeModels) {
   const repo = new Repo(openDb(':memory:'));
-  const server = createApp(repo, { enrich, listModels: fakeModels, defaultModel: 'claude/a' }).listen(0);
+  const server = createApp(repo, {
+    enrich,
+    listModels,
+    defaultModel: 'claude/a',
+    defaultConnection: { baseUrl: 'http://127.0.0.1:3425/v1', apiKey: '' },
+  }).listen(0);
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {
@@ -116,9 +121,9 @@ test('review queue and grading', async () => {
 
 test('model selection is persisted and used for enrichment', async () => {
   const used: string[] = [];
-  const { call, close } = await start(async (text, sentence, model) => {
-    used.push(model);
-    return fakeEnrich(text, sentence, model);
+  const { call, close } = await start(async (text, sentence, opts) => {
+    used.push(opts.model);
+    return fakeEnrich(text, sentence, opts);
   });
   try {
     assert.equal((await call('GET', '/api/settings')).body.model, 'claude/a');
@@ -207,6 +212,46 @@ test('only the app and the extension may call the API', async () => {
     assert.equal(ext.status, 200);
     const preflight = await call('OPTIONS', '/api/entries', undefined, { origin: 'http://localhost:5173' });
     assert.equal(preflight.status, 204);
+  } finally {
+    close();
+  }
+});
+
+test('custom service URL and API key', async () => {
+  const seen: { baseUrl: string; apiKey: string }[] = [];
+  const lister = async (conn: { baseUrl: string; apiKey: string }) => {
+    seen.push(conn);
+    if (conn.apiKey === 'bad') throw new Error('HTTP 401: invalid key');
+    return fakeModels();
+  };
+  const used: string[] = [];
+  const { call, close } = await start(async (text, sentence, opts) => {
+    used.push(`${opts.baseUrl}|${opts.apiKey}`);
+    return fakeEnrich(text, sentence, opts);
+  }, lister);
+  try {
+    let s = (await call('GET', '/api/settings')).body;
+    assert.equal(s.baseUrl, 'http://127.0.0.1:3425/v1');
+    assert.equal(s.apiKeySet, false);
+
+    assert.equal((await call('PUT', '/api/settings', { baseUrl: 'ftp://x' })).status, 400);
+    s = (await call('PUT', '/api/settings', { baseUrl: 'https://api.example.com/v1/', apiKey: 'sk-secret-1234' })).body;
+    assert.equal(s.baseUrl, 'https://api.example.com/v1');
+    assert.equal(s.apiKeyHint, '••••1234');
+    assert.ok(!JSON.stringify(s).includes('sk-secret'), 'key never returned');
+
+    await call('POST', '/api/entries', { text: 'lucid', sentence: 'A lucid answer.' });
+    assert.deepEqual(used, ['https://api.example.com/v1|sk-secret-1234']);
+
+    // Testing unsaved values, and falling back to the saved key when none is given.
+    assert.equal((await call('POST', '/api/connection/test', { apiKey: 'bad' })).body.ok, false);
+    const ok = (await call('POST', '/api/connection/test', { baseUrl: 'http://other/v1' })).body;
+    assert.equal(ok.ok, true);
+    assert.deepEqual(seen.at(-1), { baseUrl: 'http://other/v1', apiKey: 'sk-secret-1234' });
+
+    s = (await call('PUT', '/api/settings', { baseUrl: '', apiKey: '' })).body;
+    assert.equal(s.baseUrl, 'http://127.0.0.1:3425/v1');
+    assert.equal(s.apiKeySet, false);
   } finally {
     close();
   }

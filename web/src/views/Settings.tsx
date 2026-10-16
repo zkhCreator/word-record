@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, type ModelInfo, type ModelTest, type Settings } from '../api';
+import { ConnectionForm } from '../components/ConnectionForm';
 
 const PROVIDER_NAMES: Record<string, string> = {
   claude: 'Claude',
@@ -21,9 +22,15 @@ export function SettingsView() {
   const [tests, setTests] = useState<Record<string, ModelTest | 'running'>>({});
   const [custom, setCustom] = useState('');
 
+  const loadModels = () => {
+    setModels(null);
+    setError('');
+    api.models().then((r) => setModels(r.items), (e) => setError(e.message));
+  };
+
   useEffect(() => {
     api.settings().then(setSettings, (e) => setError(e.message));
-    api.models().then((r) => setModels(r.items), (e) => setError(e.message));
+    loadModels();
   }, []);
 
   const groups = useMemo(() => {
@@ -62,10 +69,29 @@ export function SettingsView() {
   return (
     <div className="settings">
       <header className="settings-head">
-        <h1>解析模型</h1>
+        <h1>设置</h1>
+      </header>
+
+      <section className="settings-section">
+        <h2 className="section-title">模型服务</h2>
         <p className="faint">
-          新记录和「重新解析」会使用这个模型，通过 magpie 的本地接口 <code>{settings?.magpieUrl ?? '…'}</code> 调用。已有的解析结果不会变。
+          任意 OpenAI 兼容接口都可以，默认是 magpie 的本地接口。API Key 只保存在本机数据库里，不会再发回浏览器。
         </p>
+        {settings && (
+          <ConnectionForm
+            settings={settings}
+            onSaved={(next) => {
+              const reconnect = next.baseUrl !== settings.baseUrl || next.apiKeyHint !== settings.apiKeyHint;
+              setSettings(next);
+              if (reconnect) loadModels();
+            }}
+          />
+        )}
+      </section>
+
+      <header className="settings-section">
+        <h2 className="section-title">解析模型</h2>
+        <p className="faint">新记录和「重新解析」会使用这个模型，已有的解析结果不会变。</p>
         {current && (
           <div className="current-model">
             <span className="faint">当前</span>
@@ -78,11 +104,11 @@ export function SettingsView() {
             )}
           </div>
         )}
-        {models && current && !listed && <p className="error">当前模型不在 magpie 的模型列表里，解析可能会失败。</p>}
+        {models && current && !listed && <p className="error">当前模型不在这个服务的模型列表里，解析可能会失败。可以在下面重新选择。</p>}
       </header>
 
       {error && <p className="error">{error}</p>}
-      {!models && !error && <p className="faint">正在读取 magpie 模型列表…</p>}
+      {!models && !error && <p className="faint">正在读取模型列表…</p>}
 
       {groups.map(([provider, list]) => (
         <section key={provider} className="model-group">

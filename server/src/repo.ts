@@ -179,6 +179,10 @@ export class Repo {
     this.db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
   }
 
+  deleteSetting(key: string) {
+    this.db.prepare('DELETE FROM settings WHERE key = ?').run(key);
+  }
+
   applyEnrichment(entryId: number, contextId: number | null, e: Enrichment, overwriteEntry: boolean, model: string) {
     const now = Date.now();
     this.db.transaction(() => {

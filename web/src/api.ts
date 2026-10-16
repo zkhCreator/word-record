@@ -71,7 +71,18 @@ export interface ModelInfo {
   reasoning: boolean;
 }
 
-export interface Settings { model: string; defaultModel: string; magpieUrl: string }
+export interface Settings {
+  model: string;
+  defaultModel: string;
+  baseUrl: string;
+  defaultBaseUrl: string;
+  apiKeySet: boolean;
+  apiKeyHint: string;
+}
+
+export interface SettingsPatch { model?: string; baseUrl?: string; apiKey?: string }
+
+export type ConnectionTest = { ok: true; ms: number; count: number } | { ok: false; ms?: number; error: string };
 
 export type ModelTest =
   | { ok: true; model: string; ms: number; lemma: string; meaning: string }
@@ -110,7 +121,9 @@ export const api = {
   grade: (id: number, grade: Grade) =>
     request<{ review: ReviewState; preview: Record<Grade, number> }>(`/api/review/${id}`, { method: 'POST', body: JSON.stringify({ grade }) }),
   settings: () => request<Settings>('/api/settings'),
-  saveSettings: (patch: Partial<Settings>) => request<Settings>('/api/settings', { method: 'PUT', body: JSON.stringify(patch) }),
+  saveSettings: (patch: SettingsPatch) => request<Settings>('/api/settings', { method: 'PUT', body: JSON.stringify(patch) }),
+  testConnection: (body: { baseUrl?: string; apiKey?: string }) =>
+    request<ConnectionTest>('/api/connection/test', { method: 'POST', body: JSON.stringify(body) }),
   models: () => request<{ items: ModelInfo[]; current: string }>('/api/models'),
   testModel: (model: string) => request<ModelTest>('/api/models/test', { method: 'POST', body: JSON.stringify({ model }) }),
   capture: (body: { text: string; sentence: string }) =>

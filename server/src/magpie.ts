@@ -14,7 +14,17 @@ export interface Enrichment {
   examples: { en: string; zh: string }[];
 }
 
-export type Enricher = (text: string, sentence: string, model: string) => Promise<Enrichment>;
+/** Where and how to reach the OpenAI-compatible model service (magpie by default). */
+export interface Connection {
+  baseUrl: string;
+  apiKey: string;
+}
+
+export interface CallOptions extends Connection {
+  model: string;
+}
+
+export type Enricher = (text: string, sentence: string, opts: CallOptions) => Promise<Enrichment>;
 
 export interface ModelInfo {
   id: string;
@@ -24,12 +34,25 @@ export interface ModelInfo {
   reasoning: boolean;
 }
 
-export type ModelLister = () => Promise<ModelInfo[]>;
+export type ModelLister = (conn: Connection) => Promise<ModelInfo[]>;
 
-const headers = () => ({
+const headers = (conn: Connection) => ({
   'content-type': 'application/json',
-  ...(config.magpie.apiKey ? { authorization: `Bearer ${config.magpie.apiKey}` } : {}),
+  ...(conn.apiKey ? { authorization: `Bearer ${conn.apiKey}` } : {}),
 });
+
+/** fetch with network failures reported as "can't reach <url> (ECONNREFUSED)" instead of "fetch failed". */
+async function call(url: string, init: RequestInit) {
+  try {
+    return await fetch(url, init);
+  } catch (err) {
+    const e = err as Error & { cause?: { code?: string; message?: string } };
+    if (e.name === 'TimeoutError') throw new Error(`请求超时：${url}`);
+    throw new Error(`无法连接 ${url}（${e.cause?.code ?? e.cause?.message ?? e.message}）`);
+  }
+}
+
+const endpoint = (conn: Connection, path: string) => `${conn.baseUrl.replace(/\/+$/, '')}${path}`;
 
 const SYSTEM_PROMPT = `You are an English dictionary assistant for a Chinese-speaking learner.
 Given a selected English word or phrase and the sentence it appeared in, return ONLY a JSON object with these keys:
@@ -46,12 +69,11 @@ Given a selected English word or phrase and the sentence it appeared in, return 
 - "examples": 2 short new example sentences using this sense, each {"en": "...", "zh": "..."}
 No markdown, no commentary.`;
 
-export const magpieEnricher: Enricher = async (text, sentence, model) => {
-  const { baseUrl, timeoutMs } = config.magpie;
-  const res = await fetch(`${baseUrl}/chat/completions`, {
+export const magpieEnricher: Enricher = async (text, sentence, { model, ...conn }) => {
+  const res = await call(endpoint(conn, '/chat/completions'), {
     method: 'POST',
-    signal: AbortSignal.timeout(timeoutMs),
-    headers: headers(),
+    signal: AbortSignal.timeout(config.magpie.timeoutMs),
+    headers: headers(conn),
     body: JSON.stringify({
       model,
       max_tokens: 1200,
@@ -71,14 +93,14 @@ async function errorMessage(res: Response) {
   const raw = await res.text();
   try {
     const msg = JSON.parse(raw)?.error?.message;
-    if (typeof msg === 'string') return `magpie ${res.status}: ${msg.slice(0, 300)}`;
+    if (typeof msg === 'string') return `HTTP ${res.status}: ${msg.slice(0, 300)}`;
   } catch {}
-  return `magpie ${res.status}: ${raw.slice(0, 300)}`;
+  return `HTTP ${res.status}: ${raw.slice(0, 300)}`;
 }
 
 /** Text chat models magpie exposes (image-generation and disabled entries are skipped). */
-export const magpieModels: ModelLister = async () => {
-  const res = await fetch(`${config.magpie.baseUrl}/models`, { headers: headers(), signal: AbortSignal.timeout(5000) });
+export const magpieModels: ModelLister = async (conn) => {
+  const res = await call(endpoint(conn, '/models'), { headers: headers(conn), signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error(await errorMessage(res));
   const body = (await res.json()) as { data?: Record<string, unknown>[] };
   return (body.data ?? [])
