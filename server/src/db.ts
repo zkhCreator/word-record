@@ -42,6 +42,29 @@ const migrations: string[] = [
   );
   CREATE INDEX idx_contexts_entry ON contexts(entry_id);
   `,
+  `
+  CREATE TABLE reviews (
+    entry_id         INTEGER PRIMARY KEY REFERENCES entries(id) ON DELETE CASCADE,
+    stage            INTEGER NOT NULL DEFAULT 0,
+    due_at           INTEGER NOT NULL,
+    reps             INTEGER NOT NULL DEFAULT 0,
+    lapses           INTEGER NOT NULL DEFAULT 0,
+    last_reviewed_at INTEGER
+  );
+  CREATE INDEX idx_reviews_due ON reviews(due_at);
+
+  CREATE TABLE review_logs (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    entry_id     INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+    grade        TEXT NOT NULL,
+    stage_before INTEGER NOT NULL,
+    stage_after  INTEGER NOT NULL,
+    reviewed_at  INTEGER NOT NULL
+  );
+  CREATE INDEX idx_review_logs_time ON review_logs(reviewed_at);
+
+  INSERT INTO reviews (entry_id, due_at) SELECT id, created_at FROM entries;
+  `,
 ];
 
 export function openDb(file: string): DB {

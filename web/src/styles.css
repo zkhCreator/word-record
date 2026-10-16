@@ -250,9 +250,92 @@ mark.hl {
   background: var(--sheet); cursor: pointer; font-size: 13.5px; white-space: nowrap;
 }
 .btn:hover { border-color: var(--ink-soft); }
+a.btn { text-decoration: none; display: inline-block; }
 .btn:disabled { opacity: 0.55; cursor: progress; }
 .btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 .btn.danger:hover { color: var(--danger); border-color: var(--danger); }
+
+/* Review */
+.review { flex: 1; overflow-y: auto; display: flex; flex-direction: column; align-items: center; padding: 32px 24px 48px; }
+.review > * { width: 100%; max-width: 680px; }
+.review-progress { display: flex; align-items: center; gap: 12px; font-size: 13px; font-variant-numeric: tabular-nums; margin-bottom: 20px; }
+.review-progress .bar { flex: 1; height: 3px; background: var(--rule); border-radius: 2px; overflow: hidden; }
+.review-progress .bar span { display: block; height: 100%; background: var(--ink); transition: width 0.3s ease; }
+
+.card {
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  padding: 48px 48px 36px;
+  min-height: 340px;
+  display: flex;
+  flex-direction: column;
+}
+.card-word {
+  font-family: var(--serif);
+  font-weight: 560;
+  font-size: clamp(40px, 7vw, 64px);
+  font-variation-settings: 'opsz' 144, 'SOFT' 30, 'WONK' 1;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+  margin: 0 0 24px;
+  overflow-wrap: anywhere;
+}
+.card-sentence { margin: 0; font: 400 21px/1.62 var(--serif); font-variation-settings: 'opsz' 28; text-wrap: pretty; }
+.card-hint { margin-top: auto; padding-top: 32px; font-size: 13.5px; }
+.answer { margin-top: 24px; padding-top: 20px; border-top: 1px dashed var(--rule); animation: reveal 0.22s ease-out; }
+@keyframes reveal { from { opacity: 0; transform: translateY(4px); } }
+.answer .meaning { margin-top: 12px; }
+.answer p { margin: 8px 0 0; }
+.answer .translation { color: var(--ink-soft); }
+.small { font-size: 13px; }
+.other-senses { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13.5px; color: var(--ink-soft); }
+.other-senses i { font-family: var(--serif); }
+.card-link { display: inline-block; margin-top: 16px; font-size: 13px; color: var(--ink-soft); text-underline-offset: 3px; text-decoration-color: var(--rule); }
+.card-link:hover { color: var(--ink); text-decoration-color: currentColor; }
+
+.review-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 16px; }
+.reveal, .grade {
+  position: relative;
+  border: 1px solid var(--rule);
+  background: var(--sheet);
+  border-radius: 10px;
+  cursor: pointer;
+  padding: 12px 14px;
+}
+.reveal { grid-column: 1 / -1; font-size: 15px; padding: 14px; background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.reveal kbd { margin-left: 8px; border-color: color-mix(in srgb, var(--paper) 35%, transparent); color: inherit; }
+.grade { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
+.grade-label { font-size: 16px; font-weight: 600; }
+.grade-next { font-size: 12.5px; color: var(--ink-soft); }
+.grade kbd { position: absolute; top: 10px; right: 10px; }
+.grade-again:hover { border-color: var(--danger); }
+.grade-again .grade-label { color: var(--danger); }
+.grade-hard:hover { border-color: #c9a227; }
+.grade-good:hover { border-color: var(--ok); }
+.grade-good .grade-label { color: var(--ok); }
+.grade:disabled { opacity: 0.6; }
+kbd {
+  font: 11px/1 var(--sans);
+  padding: 3px 5px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  color: var(--ink-faint);
+}
+
+.review-done { padding-top: 6vh; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.review-done h1 { font: 500 32px/1.25 var(--serif); font-variation-settings: 'opsz' 72; letter-spacing: -0.01em; margin: 0; }
+.review-done > p { margin: 0 0 24px; }
+.summary { width: 100%; margin-bottom: 32px; }
+.summary-figures { display: flex; gap: 48px; margin: 0 0 28px; }
+.summary-figures dt { font-size: 13px; color: var(--ink-soft); }
+.summary-figures dd { margin: 0; font: 500 36px/1.1 var(--serif); font-variant-numeric: tabular-nums; }
+.summary-figures small { font-size: 16px; color: var(--ink-faint); }
+.forecast { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.forecast caption { text-align: left; font-size: 13px; color: var(--ink-soft); padding-bottom: 8px; }
+.forecast th { font-weight: 400; font-size: 12.5px; color: var(--ink-faint); text-align: left; padding: 6px 0; border-bottom: 1px solid var(--rule); }
+.forecast td { font: 500 20px var(--serif); padding: 8px 0; }
+.forecast td.zero { color: var(--ink-faint); }
 
 @media (max-width: 899px) {
   .library { grid-template-columns: 1fr; }
@@ -262,6 +345,9 @@ mark.hl {
   .sheet { padding: 20px 20px 48px; }
   .back { display: block; margin: 16px 20px 0; border: 0; background: none; color: var(--ink-soft); padding: 0; cursor: pointer; }
   .topbar { padding: 0 16px; gap: 20px; }
+  .review { padding: 16px 16px 32px; }
+  .card { padding: 28px 22px 24px; min-height: 280px; }
+  .grade kbd, .reveal kbd { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,5 +1,6 @@
 import type { DB } from './db.ts';
 import type { Enrichment } from './magpie.ts';
+import { initialState, schedule, MASTERED_STAGE, type Grade, type ReviewState } from './srs.ts';
 
 export interface Context {
   id: number;
@@ -81,6 +82,10 @@ export class Repo {
           .prepare('INSERT INTO entries (text, normalized, kind, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
           .run(text, normalized, kind, now, now);
         entry = this.getEntry(Number(lastInsertRowid))!;
+        const r = initialState(now);
+        this.db
+          .prepare('INSERT INTO reviews (entry_id, stage, due_at, reps, lapses) VALUES (?, ?, ?, ?, ?)')
+          .run(entry.id, r.stage, r.due_at, r.reps, r.lapses);
       }
       const sentence = input.sentence.trim();
       let context = this.db
@@ -170,6 +175,57 @@ export class Repo {
 
   removeContext(id: number) {
     return this.db.prepare('DELETE FROM contexts WHERE id = ?').run(id).changes > 0;
+  }
+
+  reviewState(entryId: number) {
+    return this.db
+      .prepare('SELECT stage, due_at, reps, lapses, last_reviewed_at FROM reviews WHERE entry_id = ?')
+      .get(entryId) as ReviewState | undefined;
+  }
+
+  dueEntries(now: number, limit: number) {
+    const ids = this.db
+      .prepare('SELECT entry_id FROM reviews WHERE due_at <= ? ORDER BY due_at ASC LIMIT ?')
+      .all(now, limit) as { entry_id: number }[];
+    return ids.map(({ entry_id }) => ({
+      entry: this.getEntry(entry_id)!,
+      contexts: this.contexts(entry_id),
+      review: this.reviewState(entry_id)!,
+    }));
+  }
+
+  grade(entryId: number, grade: Grade, now: number) {
+    return this.db.transaction(() => {
+      const before = this.reviewState(entryId);
+      if (!before) return undefined;
+      const after = schedule(before, grade, now);
+      this.db
+        .prepare('UPDATE reviews SET stage = ?, due_at = ?, reps = ?, lapses = ?, last_reviewed_at = ? WHERE entry_id = ?')
+        .run(after.stage, after.due_at, after.reps, after.lapses, after.last_reviewed_at, entryId);
+      this.db
+        .prepare('INSERT INTO review_logs (entry_id, grade, stage_before, stage_after, reviewed_at) VALUES (?, ?, ?, ?, ?)')
+        .run(entryId, grade, before.stage, after.stage, now);
+      return after;
+    })();
+  }
+
+  reviewStats(now: number) {
+    const startOfDay = new Date(now).setHours(0, 0, 0, 0);
+    const DAY = 86_400_000;
+    const one = (sql: string, ...p: unknown[]) => (this.db.prepare(sql).get(...p) as { n: number }).n;
+    const forecast = Array.from({ length: 7 }, (_, i) => {
+      const from = i === 0 ? 0 : startOfDay + i * DAY;
+      const to = startOfDay + (i + 1) * DAY;
+      return { day: startOfDay + i * DAY, count: one('SELECT COUNT(*) AS n FROM reviews WHERE due_at >= ? AND due_at < ?', from, to) };
+    });
+    return {
+      total: one('SELECT COUNT(*) AS n FROM reviews'),
+      due: one('SELECT COUNT(*) AS n FROM reviews WHERE due_at <= ?', now),
+      mastered: one('SELECT COUNT(*) AS n FROM reviews WHERE stage >= ?', MASTERED_STAGE),
+      reviewedToday: one('SELECT COUNT(*) AS n FROM review_logs WHERE reviewed_at >= ?', startOfDay),
+      nextDueAt: (this.db.prepare('SELECT MIN(due_at) AS t FROM reviews WHERE due_at > ?').get(now) as { t: number | null }).t,
+      forecast,
+    };
   }
 
   private touch(id: number) {

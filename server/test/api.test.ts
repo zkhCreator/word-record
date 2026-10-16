@@ -80,3 +80,31 @@ test('enrichment failure still saves the entry', async () => {
     close();
   }
 });
+
+test('review queue and grading', async () => {
+  const { call, repo, close } = await start();
+  try {
+    const { body } = await call('POST', '/api/entries', { text: 'ephemeral', sentence: 'Fame is ephemeral.' });
+    const id = body.entry.id;
+    assert.equal((await call('GET', '/api/review/queue')).body.items.length, 0, 'not due until first interval passes');
+
+    repo.db.prepare('UPDATE reviews SET due_at = 0 WHERE entry_id = ?').run(id);
+    const queue = await call('GET', '/api/review/queue');
+    assert.equal(queue.body.items.length, 1);
+    assert.equal(queue.body.items[0].contexts[0].sentence, 'Fame is ephemeral.');
+    assert.ok(queue.body.items[0].preview.good > queue.body.items[0].preview.again);
+
+    assert.equal((await call('POST', `/api/review/${id}`, { grade: 'nope' })).status, 400);
+    const graded = await call('POST', `/api/review/${id}`, { grade: 'good' });
+    assert.equal(graded.body.review.stage, 1);
+    assert.equal((await call('GET', '/api/review/queue')).body.items.length, 0);
+
+    const stats = (await call('GET', '/api/review/stats')).body;
+    assert.equal(stats.total, 1);
+    assert.equal(stats.reviewedToday, 1);
+    assert.equal(stats.forecast.length, 7);
+    assert.equal((await call('GET', `/api/entries/${id}`)).body.review.stage, 1);
+  } finally {
+    close();
+  }
+});

@@ -4,6 +4,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import cors from 'cors';
 import type { Repo } from './repo.ts';
 import type { Enricher } from './magpie.ts';
+import { GRADES, MASTERED_STAGE, INTERVALS, preview, type Grade } from './srs.ts';
 
 export function createApp(repo: Repo, enrich: Enricher, opts: { webDist?: string } = {}) {
   const app = express();
@@ -56,7 +57,7 @@ export function createApp(repo: Repo, enrich: Enricher, opts: { webDist?: string
   app.get('/api/entries/:id', (req, res) => {
     const entry = repo.getEntry(idParam(req));
     if (!entry) return res.status(404).json({ error: 'not found' });
-    res.json({ entry, contexts: repo.contexts(entry.id) });
+    res.json({ entry, contexts: repo.contexts(entry.id), review: repo.reviewState(entry.id) });
   });
 
   app.patch('/api/entries/:id', (req, res) => {
@@ -78,6 +79,24 @@ export function createApp(repo: Repo, enrich: Enricher, opts: { webDist?: string
     repo.db.prepare(`UPDATE entries SET enrich_status = 'pending' WHERE id = ?`).run(entry.id);
     await runEnrichment(entry.id, latest?.id ?? null, entry.text, latest?.sentence ?? '');
     res.json({ entry: repo.getEntry(entry.id), contexts: repo.contexts(entry.id) });
+  });
+
+  app.get('/api/review/queue', (req, res) => {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+    const items = repo.dueEntries(Date.now(), limit).map((item) => ({ ...item, preview: preview(item.review.stage) }));
+    res.json({ items, intervals: INTERVALS, masteredStage: MASTERED_STAGE });
+  });
+
+  app.get('/api/review/stats', (_req, res) => {
+    res.json(repo.reviewStats(Date.now()));
+  });
+
+  app.post('/api/review/:id', (req, res) => {
+    const grade = req.body?.grade as Grade;
+    if (!GRADES.includes(grade)) return res.status(400).json({ error: `grade must be one of ${GRADES.join(', ')}` });
+    const review = repo.grade(idParam(req), grade, Date.now());
+    if (!review) return res.status(404).json({ error: 'not found' });
+    res.json({ review, preview: preview(review.stage) });
   });
 
   app.delete('/api/contexts/:id', (req, res) => {

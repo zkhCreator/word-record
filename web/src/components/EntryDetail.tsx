@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { api, type Context, type Entry } from '../api';
-import { hostname, shortDate } from '../format';
+import { api, type Context, type Entry, type ReviewState } from '../api';
+import { formatDue, hostname, shortDate } from '../format';
 import { Highlight } from './Highlight';
 import { SpeakButton } from './SpeakButton';
 
@@ -11,7 +11,7 @@ interface Props {
 }
 
 export function EntryDetail({ id, onChanged, onDeleted }: Props) {
-  const [data, setData] = useState<{ entry: Entry; contexts: Context[] } | null>(null);
+  const [data, setData] = useState<{ entry: Entry; contexts: Context[]; review?: ReviewState } | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [notes, setNotes] = useState('');
@@ -32,7 +32,7 @@ export function EntryDetail({ id, onChanged, onDeleted }: Props) {
   if (error) return <div className="sheet sheet-empty"><p>{error}</p></div>;
   if (!data) return <div className="sheet sheet-loading" aria-busy="true" />;
 
-  const { entry, contexts } = data;
+  const { entry, contexts, review } = data;
   const headword = entry.lemma || entry.text;
   const showForm = entry.lemma && entry.lemma.toLowerCase() !== entry.text.toLowerCase();
   const terms = [entry.text, entry.lemma];
@@ -41,7 +41,7 @@ export function EntryDetail({ id, onChanged, onDeleted }: Props) {
     setBusy(true);
     try {
       const d = await api.enrich(entry.id);
-      setData(d);
+      setData((prev) => ({ ...d, review: prev?.review }));
       onChanged(d.entry);
     } catch (e) {
       setError((e as Error).message);
@@ -174,7 +174,10 @@ export function EntryDetail({ id, onChanged, onDeleted }: Props) {
       </section>
 
       <footer className="sheet-actions">
-        <span className="faint">首次记录于 {shortDate(entry.created_at)}</span>
+        <span className="faint">
+          首次记录于 {shortDate(entry.created_at)}
+          {review && <>，已复习 {review.reps} 次，下次复习 {formatDue(review.due_at)}</>}
+        </span>
         <button className="btn" onClick={reEnrich} disabled={busy}>{busy ? '解析中…' : '重新解析'}</button>
         <button className="btn danger" onClick={removeEntry}>删除</button>
       </footer>

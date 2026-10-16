@@ -34,6 +34,32 @@ export interface Context {
   created_at: number;
 }
 
+export type Grade = 'again' | 'hard' | 'good';
+
+export interface ReviewState {
+  stage: number;
+  due_at: number;
+  reps: number;
+  lapses: number;
+  last_reviewed_at: number | null;
+}
+
+export interface ReviewItem {
+  entry: Entry;
+  contexts: Context[];
+  review: ReviewState;
+  preview: Record<Grade, number>;
+}
+
+export interface ReviewStats {
+  total: number;
+  due: number;
+  mastered: number;
+  reviewedToday: number;
+  nextDueAt: number | null;
+  forecast: { day: number; count: number }[];
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -51,12 +77,16 @@ export const api = {
     for (const [k, v] of Object.entries(params)) if (v) qs.set(k, String(v));
     return request<{ items: Entry[]; total: number }>(`/api/entries?${qs}`);
   },
-  get: (id: number) => request<{ entry: Entry; contexts: Context[] }>(`/api/entries/${id}`),
+  get: (id: number) => request<{ entry: Entry; contexts: Context[]; review?: ReviewState }>(`/api/entries/${id}`),
   update: (id: number, patch: Partial<Entry>) =>
     request<{ entry: Entry }>(`/api/entries/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   remove: (id: number) => request<void>(`/api/entries/${id}`, { method: 'DELETE' }),
   removeContext: (id: number) => request<void>(`/api/contexts/${id}`, { method: 'DELETE' }),
   enrich: (id: number) => request<{ entry: Entry; contexts: Context[] }>(`/api/entries/${id}/enrich`, { method: 'POST' }),
+  reviewQueue: () => request<{ items: ReviewItem[]; intervals: number[]; masteredStage: number }>('/api/review/queue'),
+  reviewStats: () => request<ReviewStats>('/api/review/stats'),
+  grade: (id: number, grade: Grade) =>
+    request<{ review: ReviewState; preview: Record<Grade, number> }>(`/api/review/${id}`, { method: 'POST', body: JSON.stringify({ grade }) }),
   capture: (body: { text: string; sentence: string }) =>
     request<{ entry: Entry; context: Context; created: boolean }>('/api/entries', { method: 'POST', body: JSON.stringify(body) }),
 };
