@@ -74,26 +74,26 @@ export function showToast(state) {
   root.innerHTML = `
     <style>
       :host { all: initial; }
-      .card { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; color: #2b2723;
-        background: #fbf8f3; border: 1px solid #e7dfd3; border-radius: 14px; padding: 14px 16px 14px 18px;
-        width: 320px; box-shadow: 0 12px 32px rgba(40, 30, 20, .18); position: relative;
-        border-left: 4px solid #b4532a; animation: in .22s ease-out; }
+      .card { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; color: #1e2b4a;
+        background: #fbfbf8; border: 1px solid #d9dce3; border-radius: 14px; padding: 14px 16px 14px 18px;
+        width: 320px; box-shadow: 0 12px 32px rgba(30, 43, 74, .16); position: relative;
+        border-left: 4px solid #ffe066; animation: in .22s ease-out; }
       @media (prefers-color-scheme: dark) {
-        .card { color: #ece6dd; background: #24211e; border-color: #3a352f; border-left-color: #e08a5c; }
-        .muted, .sub { color: #a89f94 !important; }
+        .card { color: #e4e7ee; background: #1c2230; border-color: #2c3445; border-left-color: #e6c54f; }
+        .muted, .sub { color: #a5adc0 !important; }
       }
       @keyframes in { from { opacity: 0; transform: translateY(8px); } }
       .head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; padding-right: 18px; }
       .term { font: 600 18px/1.3 "Iowan Old Style", Charter, Georgia, serif; }
-      .lemma { color: #b4532a; font-weight: 500; }
-      .badge { margin-left: auto; font-size: 11px; color: #b4532a; border: 1px solid currentColor; border-radius: 999px; padding: 0 7px; }
-      .sub { color: #7d746a; font-size: 12.5px; margin-top: 2px; }
+      .lemma { color: #5d6782; font-weight: 500; }
+      .badge { margin-left: auto; font-size: 11px; color: #1e2b4a; background: #ffe066; border-radius: 999px; padding: 0 7px; }
+      .sub { color: #5d6782; font-size: 12.5px; margin-top: 2px; }
       .meaning { font-size: 15px; font-weight: 600; margin-top: 8px; }
-      .muted { color: #7d746a; font-size: 12.5px; margin-top: 4px; }
+      .muted { color: #5d6782; font-size: 12.5px; margin-top: 4px; }
       .err { color: #b3261e; font-size: 12.5px; margin-top: 6px; }
       .close { position: absolute; top: 8px; right: 10px; border: 0; background: none; color: inherit; opacity: .5; cursor: pointer; font-size: 16px; }
       .close:hover { opacity: 1; }
-      .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #b4532a; margin-right: 7px;
+      .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #e6c54f; margin-right: 7px;
         animation: pulse 1s infinite alternate; }
       @keyframes pulse { to { opacity: .25; } }
     </style>

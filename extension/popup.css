@@ -1,5 +1,5 @@
-:root { color-scheme: light dark; --accent: #b4532a; --bg: #fbf8f3; --fg: #2b2723; --muted: #7d746a; --line: #e7dfd3; }
-@media (prefers-color-scheme: dark) { :root { --accent: #e08a5c; --bg: #1c1a18; --fg: #ece6dd; --muted: #a89f94; --line: #3a352f; } }
+:root { color-scheme: light dark; --accent: #1e2b4a; --bg: #f3f4ef; --fg: #1e2b4a; --muted: #5d6782; --line: #d9dce3; }
+@media (prefers-color-scheme: dark) { :root { --accent: #e4e7ee; --bg: #161b26; --fg: #e4e7ee; --muted: #a5adc0; --line: #2c3445; } }
 body { margin: 0; width: 300px; padding: 14px 16px; background: var(--bg); color: var(--fg);
   font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
 header { display: flex; align-items: center; justify-content: space-between; }
@@ -16,7 +16,7 @@ h1 { font: 600 17px "Iowan Old Style", Charter, Georgia, serif; margin: 0; }
 .empty { color: var(--muted); padding: 8px 0; }
 .actions { display: flex; gap: 8px; margin: 10px 0; }
 button { flex: 1; padding: 7px 0; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; font: inherit; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
 details { color: var(--muted); }
 summary { cursor: pointer; }
 label { display: block; margin-top: 8px; }
