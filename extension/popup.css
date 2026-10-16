@@ -1,0 +1,25 @@
+:root { color-scheme: light dark; --accent: #b4532a; --bg: #fbf8f3; --fg: #2b2723; --muted: #7d746a; --line: #e7dfd3; }
+@media (prefers-color-scheme: dark) { :root { --accent: #e08a5c; --bg: #1c1a18; --fg: #ece6dd; --muted: #a89f94; --line: #3a352f; } }
+body { margin: 0; width: 300px; padding: 14px 16px; background: var(--bg); color: var(--fg);
+  font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
+header { display: flex; align-items: center; justify-content: space-between; }
+h1 { font: 600 17px "Iowan Old Style", Charter, Georgia, serif; margin: 0; }
+.status { font-size: 11px; color: var(--muted); }
+.status.ok::before, .status.down::before { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; background: #4f8a5b; }
+.status.down::before { background: #b3261e; }
+.stats { display: flex; gap: 16px; margin: 10px 0 4px; color: var(--muted); }
+.stats b { color: var(--fg); font-size: 16px; margin-right: 3px; }
+.recent { list-style: none; padding: 0; margin: 8px 0; }
+.recent li { padding: 6px 0; border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: baseline; }
+.recent .t { font-family: "Iowan Old Style", Charter, Georgia, serif; font-weight: 600; font-size: 14px; }
+.recent .m { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.empty { color: var(--muted); padding: 8px 0; }
+.actions { display: flex; gap: 8px; margin: 10px 0; }
+button { flex: 1; padding: 7px 0; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; font: inherit; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+details { color: var(--muted); }
+summary { cursor: pointer; }
+label { display: block; margin-top: 8px; }
+input { width: 100%; box-sizing: border-box; margin-top: 4px; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--fg); font: inherit; }
+.hint { margin: 8px 0 0; font-size: 12px; }
+kbd { border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 11px; }

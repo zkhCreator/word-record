@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Word Record",
+  "version": "0.1.0",
+  "description": "右键记录英文单词/短句及其上下文，自动解析语境含义。",
+  "permissions": ["contextMenus", "scripting", "activeTab", "storage"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_popup": "popup.html", "default_title": "Word Record" },
+  "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "commands": {
+    "capture-selection": {
+      "suggested_key": { "default": "Alt+Shift+S" },
+      "description": "记录当前选中的单词/短句"
+    }
+  }
+}

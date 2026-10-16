@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <h1>Word Record</h1>
+    <span id="status" class="status">…</span>
+  </header>
+  <section id="stats" class="stats"></section>
+  <ol id="recent" class="recent"></ol>
+  <div class="actions">
+    <button id="open" class="primary">打开词库</button>
+    <button id="review">开始复习</button>
+  </div>
+  <details>
+    <summary>设置</summary>
+    <label>本地服务地址 <input id="server" placeholder="http://127.0.0.1:5178" /></label>
+    <p class="hint">快捷键 <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> 记录当前选中内容</p>
+  </details>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

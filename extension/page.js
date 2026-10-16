@@ -1,0 +1,111 @@
+// Functions injected into the page with chrome.scripting.executeScript.
+// Each must be fully self-contained: no closures over module scope.
+
+export function captureContext() {
+  const sel = window.getSelection();
+  const text = sel ? sel.toString().trim() : '';
+  const base = { text, sentence: '', url: location.href, title: document.title };
+  if (!sel || !sel.rangeCount || !text) return base;
+
+  const range = sel.getRangeAt(0);
+  let node = range.commonAncestorContainer;
+  if (node.nodeType !== Node.ELEMENT_NODE) node = node.parentElement;
+  const BLOCK = /^(P|LI|DD|DT|TD|TH|H[1-6]|BLOCKQUOTE|PRE|FIGCAPTION|CAPTION|ARTICLE|SECTION|DIV|BODY)$/;
+  while (node && !BLOCK.test(node.tagName)) node = node.parentElement;
+  node = node || document.body;
+
+  const before = document.createRange();
+  before.setStart(node, 0);
+  before.setEnd(range.startContainer, range.startOffset);
+  const full = node.textContent || '';
+  const start = before.toString().length;
+  const end = Math.min(full.length, start + range.toString().length);
+
+  const terminator = (i) =>
+    /[.!?。！？;；]/.test(full[i]) && (i + 1 >= full.length || /[\s"'”’)\]]/.test(full[i + 1]));
+  let s = start;
+  while (s > 0 && full[s - 1] !== '\n' && !terminator(s - 1)) s--;
+  let e = end;
+  while (e < full.length && full[e] !== '\n' && !terminator(e)) e++;
+  if (e < full.length && full[e] !== '\n') e++;
+
+  // Very long "sentences" (lists, unpunctuated blocks): keep a window around the selection.
+  const MAX = 500;
+  if (e - s > MAX) {
+    const pad = Math.max(0, Math.floor((MAX - (end - start)) / 2));
+    s = Math.max(s, start - pad);
+    e = Math.min(e, end + pad);
+  }
+  return { ...base, sentence: full.slice(s, e).replace(/\s+/g, ' ').trim() };
+}
+
+export function showToast(state) {
+  const HOST_ID = 'word-record-toast-host';
+  let host = document.getElementById(HOST_ID);
+  if (!host) {
+    host = document.createElement('div');
+    host.id = HOST_ID;
+    host.style.cssText = 'all:initial;position:fixed;z-index:2147483647;right:20px;bottom:20px;';
+    host.attachShadow({ mode: 'open' });
+    document.documentElement.appendChild(host);
+  }
+  const root = host.shadowRoot;
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+  let body = '';
+  if (state.status === 'loading') {
+    body = `<div class="term">${esc(state.text)}</div><div class="muted"><span class="dot"></span>正在记录并解析语境…</div>`;
+  } else if (state.status === 'error') {
+    body = `<div class="term">${esc(state.text || 'Word Record')}</div><div class="err">${esc(state.message)}</div>`;
+  } else {
+    const { entry, context, created } = state;
+    const lemma = entry.lemma && entry.lemma.toLowerCase() !== entry.text.toLowerCase()
+      ? `<span class="lemma">→ ${esc(entry.lemma)}</span>` : '';
+    const meaning = context?.meaning || entry.meaning;
+    body = `
+      <div class="head"><span class="term">${esc(entry.text)}</span>${lemma}
+        <span class="badge">${created ? '已记录' : '新语境'}</span></div>
+      <div class="sub">${esc(entry.phonetic)} <i>${esc(entry.pos)}</i></div>
+      ${meaning ? `<div class="meaning">${esc(meaning)}</div>` : ''}
+      ${context?.explanation ? `<div class="muted">${esc(context.explanation)}</div>` : ''}
+      ${entry.enrich_status === 'error' ? `<div class="err">已保存，但解析失败：${esc(entry.enrich_error)}</div>` : ''}`;
+  }
+
+  root.innerHTML = `
+    <style>
+      :host { all: initial; }
+      .card { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; color: #2b2723;
+        background: #fbf8f3; border: 1px solid #e7dfd3; border-radius: 14px; padding: 14px 16px 14px 18px;
+        width: 320px; box-shadow: 0 12px 32px rgba(40, 30, 20, .18); position: relative;
+        border-left: 4px solid #b4532a; animation: in .22s ease-out; }
+      @media (prefers-color-scheme: dark) {
+        .card { color: #ece6dd; background: #24211e; border-color: #3a352f; border-left-color: #e08a5c; }
+        .muted, .sub { color: #a89f94 !important; }
+      }
+      @keyframes in { from { opacity: 0; transform: translateY(8px); } }
+      .head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; padding-right: 18px; }
+      .term { font: 600 18px/1.3 "Iowan Old Style", Charter, Georgia, serif; }
+      .lemma { color: #b4532a; font-weight: 500; }
+      .badge { margin-left: auto; font-size: 11px; color: #b4532a; border: 1px solid currentColor; border-radius: 999px; padding: 0 7px; }
+      .sub { color: #7d746a; font-size: 12.5px; margin-top: 2px; }
+      .meaning { font-size: 15px; font-weight: 600; margin-top: 8px; }
+      .muted { color: #7d746a; font-size: 12.5px; margin-top: 4px; }
+      .err { color: #b3261e; font-size: 12.5px; margin-top: 6px; }
+      .close { position: absolute; top: 8px; right: 10px; border: 0; background: none; color: inherit; opacity: .5; cursor: pointer; font-size: 16px; }
+      .close:hover { opacity: 1; }
+      .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #b4532a; margin-right: 7px;
+        animation: pulse 1s infinite alternate; }
+      @keyframes pulse { to { opacity: .25; } }
+    </style>
+    <div class="card"><button class="close" title="关闭">×</button>${body}</div>`;
+
+  const close = () => host.remove();
+  root.querySelector('.close').addEventListener('click', close);
+  clearTimeout(host._timer);
+  if (state.status !== 'loading') {
+    const arm = () => { host._timer = setTimeout(close, state.status === 'error' ? 8000 : 6500); };
+    root.querySelector('.card').addEventListener('mouseenter', () => clearTimeout(host._timer));
+    root.querySelector('.card').addEventListener('mouseleave', arm);
+    arm();
+  }
+}

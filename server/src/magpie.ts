@@ -19,7 +19,7 @@ export type Enricher = (text: string, sentence: string) => Promise<Enrichment>;
 const SYSTEM_PROMPT = `You are an English dictionary assistant for a Chinese-speaking learner.
 Given a selected English word or phrase and the sentence it appeared in, return ONLY a JSON object with these keys:
 - "kind": "word" or "phrase"
-- "lemma": dictionary base form (e.g. "running" -> "run", "took into account" -> "take into account"); for proper phrases keep the canonical form
+- "lemma": the selection in dictionary base form, keeping ALL of its words and only un-inflecting them (e.g. "running" -> "run", "took into account" -> "take into account", "met with fierce criticism" -> "meet with fierce criticism"); never drop words
 - "phonetic": IPA of the lemma wrapped in slashes, e.g. "/rʌn/"; "" for long phrases
 - "pos": part of speech in this context, abbreviated (n. / v. / adj. / adv. / prep. / phr. ...)
 - "form_note": Chinese note on how the selected form relates to the lemma (e.g. "running 是 run 的现在分词"); "" if identical
