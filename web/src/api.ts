@@ -19,6 +19,7 @@ export interface Entry {
   enrich_model: string | null;
   created_at: number;
   updated_at: number;
+  forms?: string[];
   context_count?: number;
   latest_sentence?: string | null;
 }
@@ -29,6 +30,7 @@ export interface Context {
   sentence: string;
   url: string | null;
   title: string | null;
+  form: string | null;
   meaning: string | null;
   explanation: string | null;
   translation: string | null;
@@ -97,6 +99,11 @@ export const api = {
     request<{ entry: Entry }>(`/api/entries/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   remove: (id: number) => request<void>(`/api/entries/${id}`, { method: 'DELETE' }),
   removeContext: (id: number) => request<void>(`/api/contexts/${id}`, { method: 'DELETE' }),
+  merge: (id: number, into: number) =>
+    request<{ entry: Entry; contexts: Context[]; review?: ReviewState }>(`/api/entries/${id}/merge`, {
+      method: 'POST',
+      body: JSON.stringify({ into }),
+    }),
   enrich: (id: number) => request<{ entry: Entry; contexts: Context[] }>(`/api/entries/${id}/enrich`, { method: 'POST' }),
   reviewQueue: () => request<{ items: ReviewItem[]; intervals: number[]; masteredStage: number }>('/api/review/queue'),
   reviewStats: () => request<ReviewStats>('/api/review/stats'),
@@ -107,5 +114,5 @@ export const api = {
   models: () => request<{ items: ModelInfo[]; current: string }>('/api/models'),
   testModel: (model: string) => request<ModelTest>('/api/models/test', { method: 'POST', body: JSON.stringify({ model }) }),
   capture: (body: { text: string; sentence: string }) =>
-    request<{ entry: Entry; context: Context; created: boolean }>('/api/entries', { method: 'POST', body: JSON.stringify(body) }),
+    request<{ entry: Entry; context: Context; created: boolean; merged: boolean }>('/api/entries', { method: 'POST', body: JSON.stringify(body) }),
 };

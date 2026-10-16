@@ -72,6 +72,19 @@ const migrations: string[] = [
   );
   ALTER TABLE entries ADD COLUMN enrich_model TEXT;
   `,
+  `
+  CREATE TABLE entry_forms (
+    form     TEXT PRIMARY KEY,
+    entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE
+  );
+  CREATE INDEX idx_entry_forms_entry ON entry_forms(entry_id);
+  INSERT INTO entry_forms (form, entry_id) SELECT normalized, id FROM entries;
+
+  ALTER TABLE contexts ADD COLUMN form TEXT;
+  UPDATE contexts SET form = (SELECT text FROM entries WHERE entries.id = contexts.entry_id);
+
+  CREATE INDEX idx_entries_lemma_lower ON entries(lower(lemma));
+  `,
 ];
 
 export function openDb(file: string): DB {

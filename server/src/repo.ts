@@ -8,6 +8,7 @@ export interface Context {
   sentence: string;
   url: string | null;
   title: string | null;
+  form: string | null;
   meaning: string | null;
   explanation: string | null;
   translation: string | null;
@@ -33,6 +34,8 @@ export interface Entry {
   enrich_model: string | null;
   created_at: number;
   updated_at: number;
+  /** Every surface form captured for this entry (running, ran, ...). */
+  forms?: string[];
 }
 
 type EntryRow = Omit<Entry, 'senses' | 'examples'> & { senses: string; examples: string };
@@ -52,7 +55,71 @@ export class Repo {
   constructor(readonly db: DB) {}
 
   getEntry(id: number) {
-    return hydrate(this.db.prepare('SELECT * FROM entries WHERE id = ?').get(id) as EntryRow | undefined);
+    const entry = hydrate(this.db.prepare('SELECT * FROM entries WHERE id = ?').get(id) as EntryRow | undefined);
+    if (entry) entry.forms = this.forms(id);
+    return entry;
+  }
+
+  forms(entryId: number) {
+    return (this.db.prepare('SELECT form FROM entry_forms WHERE entry_id = ? ORDER BY rowid').all(entryId) as { form: string }[]).map(
+      (r) => r.form,
+    );
+  }
+
+  findByForm(form: string) {
+    const row = this.db.prepare('SELECT entry_id FROM entry_forms WHERE form = ?').get(form) as { entry_id: number } | undefined;
+    return row ? this.getEntry(row.entry_id) : undefined;
+  }
+
+  /** Oldest other entry sharing this lemma (case-insensitive). */
+  findByLemma(lemma: string, excludeId: number) {
+    const row = this.db
+      .prepare('SELECT id FROM entries WHERE lower(lemma) = lower(?) AND id != ? ORDER BY id LIMIT 1')
+      .get(lemma, excludeId) as { id: number } | undefined;
+    return row ? this.getEntry(row.id) : undefined;
+  }
+
+  /** Folds `sourceId` into `targetId`: contexts, forms, notes and review history move; the source is deleted. */
+  merge(sourceId: number, targetId: number) {
+    if (sourceId === targetId) return this.getEntry(targetId);
+    return this.db.transaction(() => {
+      const source = this.getEntry(sourceId);
+      const target = this.getEntry(targetId);
+      if (!source || !target) return undefined;
+      for (const table of ['contexts', 'entry_forms', 'review_logs']) {
+        this.db.prepare(`UPDATE ${table} SET entry_id = ? WHERE entry_id = ?`).run(targetId, sourceId);
+      }
+      // Same sentence captured under two forms: keep the earliest copy.
+      this.db
+        .prepare(
+          `DELETE FROM contexts WHERE entry_id = ? AND id NOT IN (
+             SELECT MIN(id) FROM contexts WHERE entry_id = ? GROUP BY sentence)`,
+        )
+        .run(targetId, targetId);
+      const notes = [target.notes, source.notes].filter((n) => n.trim()).join('\n\n');
+      this.db.prepare('UPDATE entries SET notes = ?, updated_at = ? WHERE id = ?').run(notes, Date.now(), targetId);
+      this.db.prepare('DELETE FROM entries WHERE id = ?').run(sourceId);
+      return this.getEntry(targetId);
+    })();
+  }
+
+  /** Merges every group of entries that share a lemma into the oldest one. Returns how many were folded. */
+  aggregateByLemma() {
+    const groups = this.db
+      .prepare(
+        `SELECT group_concat(id) AS ids FROM (SELECT id, lower(lemma) AS l FROM entries WHERE lemma IS NOT NULL AND lemma != '' ORDER BY id)
+         GROUP BY l HAVING COUNT(*) > 1`,
+      )
+      .all() as { ids: string }[];
+    let merged = 0;
+    for (const { ids } of groups) {
+      const [target, ...rest] = ids.split(',').map(Number).sort((a, b) => a - b);
+      for (const id of rest) {
+        this.merge(id, target);
+        merged++;
+      }
+    }
+    return merged;
   }
 
   findByNormalized(normalized: string) {
@@ -75,13 +142,14 @@ export class Repo {
     const text = cleanText(input.text);
     const normalized = normalizeText(input.text);
     return this.db.transaction(() => {
-      let entry = this.findByNormalized(normalized);
+      let entry = this.findByForm(normalized);
       const created = !entry;
       if (!entry) {
         const kind = /\s/.test(text) ? 'phrase' : 'word';
         const { lastInsertRowid } = this.db
           .prepare('INSERT INTO entries (text, normalized, kind, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
           .run(text, normalized, kind, now, now);
+        this.db.prepare('INSERT INTO entry_forms (form, entry_id) VALUES (?, ?)').run(normalized, Number(lastInsertRowid));
         entry = this.getEntry(Number(lastInsertRowid))!;
         const r = initialState(now);
         this.db
@@ -94,8 +162,8 @@ export class Repo {
         .get(entry.id, sentence) as Context | undefined;
       if (!context) {
         const { lastInsertRowid } = this.db
-          .prepare('INSERT INTO contexts (entry_id, sentence, url, title, created_at) VALUES (?, ?, ?, ?, ?)')
-          .run(entry.id, sentence, input.url ?? null, input.title ?? null, now);
+          .prepare('INSERT INTO contexts (entry_id, sentence, url, title, form, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+          .run(entry.id, sentence, input.url ?? null, input.title ?? null, text, now);
         context = this.getContext(Number(lastInsertRowid))!;
         this.touch(entry.id);
       }
@@ -142,9 +210,9 @@ export class Repo {
     const where: string[] = [];
     const params: unknown[] = [];
     if (opts.q) {
-      where.push('(e.normalized LIKE ? OR e.lemma LIKE ? OR e.meaning LIKE ?)');
+      where.push('(e.lemma LIKE ? OR e.meaning LIKE ? OR e.id IN (SELECT entry_id FROM entry_forms WHERE form LIKE ?))');
       const like = `%${opts.q.toLowerCase()}%`;
-      params.push(like, like, `%${opts.q}%`);
+      params.push(like, `%${opts.q}%`, like);
     }
     if (opts.kind === 'word' || opts.kind === 'phrase') {
       where.push('e.kind = ?');
@@ -157,13 +225,15 @@ export class Repo {
       .prepare(
         `SELECT e.*,
            (SELECT COUNT(*) FROM contexts c WHERE c.entry_id = e.id) AS context_count,
-           (SELECT c.sentence FROM contexts c WHERE c.entry_id = e.id ORDER BY c.created_at DESC, c.id DESC LIMIT 1) AS latest_sentence
+           (SELECT c.sentence FROM contexts c WHERE c.entry_id = e.id ORDER BY c.created_at DESC, c.id DESC LIMIT 1) AS latest_sentence,
+           (SELECT group_concat(f.form, char(31)) FROM entry_forms f WHERE f.entry_id = e.id) AS forms_joined
          FROM entries e ${sqlWhere}
          ORDER BY e.updated_at DESC, e.id DESC LIMIT ? OFFSET ?`,
       )
-      .all(...params, limit, offset) as (EntryRow & { context_count: number; latest_sentence: string | null })[];
+      .all(...params, limit, offset) as (EntryRow & { context_count: number; latest_sentence: string | null; forms_joined: string | null })[];
     const { total } = this.db.prepare(`SELECT COUNT(*) AS total FROM entries e ${sqlWhere}`).get(...params) as { total: number };
-    return { items: rows.map((r) => hydrate(r)!), total };
+    const items = rows.map(({ forms_joined, ...r }) => ({ ...hydrate(r)!, forms: forms_joined ? forms_joined.split('\x1f') : [] }));
+    return { items, total };
   }
 
   update(id: number, patch: Partial<Pick<Entry, 'notes' | 'meaning' | 'lemma' | 'phonetic' | 'pos' | 'definition_en'>>) {

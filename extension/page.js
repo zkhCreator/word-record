@@ -59,12 +59,13 @@ export function showToast(state) {
     body = `<div class="term">${esc(state.text || 'Word Record')}</div><div class="err">${esc(state.message)}</div>`;
   } else {
     const { entry, context, created } = state;
-    const lemma = entry.lemma && entry.lemma.toLowerCase() !== entry.text.toLowerCase()
+    const form = context?.form || entry.text;
+    const lemma = entry.lemma && entry.lemma.toLowerCase() !== form.toLowerCase()
       ? `<span class="lemma">→ ${esc(entry.lemma)}</span>` : '';
     const meaning = context?.meaning || entry.meaning;
     body = `
-      <div class="head"><span class="term">${esc(entry.text)}</span>${lemma}
-        <span class="badge">${created ? '已记录' : '新语境'}</span></div>
+      <div class="head"><span class="term">${esc(form)}</span>${lemma}
+        <span class="badge">${state.merged ? '已归入' : created ? '已记录' : '新语境'}</span></div>
       <div class="sub">${esc(entry.phonetic)} <i>${esc(entry.pos)}</i></div>
       ${meaning ? `<div class="meaning">${esc(meaning)}</div>` : ''}
       ${context?.explanation ? `<div class="muted">${esc(context.explanation)}</div>` : ''}

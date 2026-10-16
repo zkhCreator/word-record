@@ -135,3 +135,58 @@ test('model selection is persisted and used for enrichment', async () => {
     close();
   }
 });
+
+const lemmaEnrich: Enricher = async (text, sentence) => {
+  const lemmas: Record<string, string> = { running: 'run', ran: 'run', runs: 'run', run: 'run', walked: 'walk' };
+  return normalize({ lemma: lemmas[text.toLowerCase()] ?? text, meaning: `m:${sentence}` }, text);
+};
+
+test('captures sharing a lemma aggregate into one entry', async () => {
+  const { call, close } = await start(lemmaEnrich);
+  try {
+    const a = await call('POST', '/api/entries', { text: 'running', sentence: 'She is running.' });
+    assert.equal(a.status, 201);
+    const b = await call('POST', '/api/entries', { text: 'ran', sentence: 'He ran home.' });
+    assert.equal(b.status, 200);
+    assert.equal(b.body.merged, true);
+    assert.equal(b.body.entry.id, a.body.entry.id);
+    assert.deepEqual(b.body.entry.forms, ['running', 'ran']);
+    assert.equal(b.body.context.form, 'ran');
+
+    // A known form now resolves directly, without creating a throwaway entry.
+    const c = await call('POST', '/api/entries', { text: 'Ran', sentence: 'They ran out of time.' });
+    assert.equal(c.body.entry.id, a.body.entry.id);
+    assert.equal(c.body.merged, false);
+
+    const list = await call('GET', '/api/entries');
+    assert.equal(list.body.total, 1);
+    assert.equal(list.body.items[0].context_count, 3);
+    assert.equal((await call('GET', '/api/entries?q=ran')).body.total, 1);
+    assert.equal((await call('GET', '/api/review/stats')).body.total, 1);
+  } finally {
+    close();
+  }
+});
+
+test('manual merge and startup aggregation', async () => {
+  const { call, repo, close } = await start(lemmaEnrich);
+  try {
+    const walk = await call('POST', '/api/entries', { text: 'walked', sentence: 'We walked.' });
+    const stroll = await call('POST', '/api/entries', { text: 'stroll', sentence: 'A stroll.' });
+    await call('PATCH', `/api/entries/${stroll.body.entry.id}`, { notes: 'slow walk' });
+    const merged = await call('POST', `/api/entries/${stroll.body.entry.id}/merge`, { into: walk.body.entry.id });
+    assert.deepEqual(merged.body.entry.forms, ['walked', 'stroll']);
+    assert.equal(merged.body.contexts.length, 2);
+    assert.equal(merged.body.entry.notes, 'slow walk');
+    assert.equal((await call('GET', `/api/entries/${stroll.body.entry.id}`)).status, 404);
+
+    // Legacy duplicates (created before aggregation existed) fold on startup.
+    const x = repo.capture({ text: 'runs', sentence: 'It runs.' });
+    const y = repo.capture({ text: 'run', sentence: 'Run!' });
+    repo.db.prepare("UPDATE entries SET lemma = 'run' WHERE id IN (?, ?)").run(x.entry.id, y.entry.id);
+    assert.equal(repo.aggregateByLemma(), 1);
+    assert.deepEqual(repo.getEntry(x.entry.id)!.forms, ['runs', 'run']);
+  } finally {
+    close();
+  }
+});

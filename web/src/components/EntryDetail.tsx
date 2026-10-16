@@ -3,14 +3,16 @@ import { api, type Context, type Entry, type ReviewState } from '../api';
 import { formatDue, hostname, shortDate } from '../format';
 import { Highlight } from './Highlight';
 import { SpeakButton } from './SpeakButton';
+import { MergeControl } from './MergeControl';
 
 interface Props {
   id: number;
   onChanged: (entry: Entry) => void;
   onDeleted: (id: number) => void;
+  onMerged: (sourceId: number, target: Entry) => void;
 }
 
-export function EntryDetail({ id, onChanged, onDeleted }: Props) {
+export function EntryDetail({ id, onChanged, onDeleted, onMerged }: Props) {
   const [data, setData] = useState<{ entry: Entry; contexts: Context[]; review?: ReviewState } | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -34,8 +36,9 @@ export function EntryDetail({ id, onChanged, onDeleted }: Props) {
 
   const { entry, contexts, review } = data;
   const headword = entry.lemma || entry.text;
-  const showForm = entry.lemma && entry.lemma.toLowerCase() !== entry.text.toLowerCase();
-  const terms = [entry.text, entry.lemma];
+  const forms = entry.forms?.length ? entry.forms : [entry.text.toLowerCase()];
+  const showForms = forms.length > 1 || (!!entry.lemma && forms[0] !== entry.lemma.toLowerCase());
+  const terms = [entry.text, entry.lemma, ...forms];
 
   async function reEnrich() {
     setBusy(true);
@@ -78,12 +81,15 @@ export function EntryDetail({ id, onChanged, onDeleted }: Props) {
           <SpeakButton text={headword} />
           {entry.pos && <span className="pos">{entry.pos}</span>}
         </div>
-        {showForm && (
+        {showForms && (
           <p className="form-note">
-            原文写作 <em>{entry.text}</em>
-            {entry.form_note && <span>。{entry.form_note}</span>}
+            {forms.length > 1 ? `记录过的 ${forms.length} 种形式` : '原文写作'}
+            <span className="forms">
+              {forms.map((f) => <em key={f}>{f}</em>)}
+            </span>
           </p>
         )}
+        {showForms && entry.form_note && <p className="form-note faint">{entry.form_note}</p>}
         {entry.meaning && <p className="meaning">{entry.meaning}</p>}
         {entry.definition_en && <p className="definition">{entry.definition_en}</p>}
       </header>
@@ -104,7 +110,7 @@ export function EntryDetail({ id, onChanged, onDeleted }: Props) {
           {contexts.map((c) => (
             <li key={c.id} className="context">
               <blockquote className="sentence">
-                {c.sentence ? <Highlight text={c.sentence} terms={terms} /> : <span className="faint">（没有记录到句子）</span>}
+                {c.sentence ? <Highlight text={c.sentence} terms={[c.form, ...terms]} /> : <span className="faint">（没有记录到句子）</span>}
               </blockquote>
               {c.translation && <p className="translation">{c.translation}</p>}
               {(c.meaning || c.explanation) && (
@@ -180,6 +186,7 @@ export function EntryDetail({ id, onChanged, onDeleted }: Props) {
           {entry.enrich_model && <><br />由 {entry.enrich_model} 解析</>}
         </span>
         <button className="btn" onClick={reEnrich} disabled={busy}>{busy ? '解析中…' : '重新解析'}</button>
+        <MergeControl entry={entry} onMerged={(target) => onMerged(entry.id, target)} />
         <button className="btn danger" onClick={removeEntry}>删除</button>
       </footer>
     </article>

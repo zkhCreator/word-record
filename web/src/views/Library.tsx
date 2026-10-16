@@ -121,7 +121,10 @@ export function Library({ selectedId }: { selectedId: number | null }) {
                         navigate(`/entry/${e.id}`);
                       }}
                     >
-                      <span className="row-word">{e.lemma || e.text}</span>
+                      <span className="row-word">
+                        {e.lemma || e.text}
+                        {(e.forms?.length ?? 0) > 1 && <span className="row-forms">{e.forms!.filter((f) => f !== (e.lemma || '').toLowerCase()).join(' / ')}</span>}
+                      </span>
                       <span className="row-meaning">
                         {e.enrich_status === 'error' ? <span className="error">解析失败</span> : e.meaning || '…'}
                       </span>
@@ -142,6 +145,12 @@ export function Library({ selectedId }: { selectedId: number | null }) {
             <EntryDetail
               id={selectedId}
               onChanged={replaceItem}
+              onMerged={(sourceId, target) => {
+                setItems((list) => list?.filter((e) => e.id !== sourceId) ?? list);
+                setTotal((t) => t - 1);
+                load();
+                navigate(`/entry/${target.id}`, true);
+              }}
               onDeleted={(id) => {
                 const rest = (items ?? []).filter((e) => e.id !== id);
                 setItems(rest);

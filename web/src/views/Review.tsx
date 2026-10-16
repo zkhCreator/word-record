@@ -95,7 +95,7 @@ export function Review({ onReviewed }: { onReviewed: () => void }) {
   const { entry, contexts } = current;
   const ctx = contexts[0];
   const headword = entry.lemma || entry.text;
-  const terms = [entry.text, entry.lemma];
+  const terms = [ctx?.form, entry.text, entry.lemma, ...(entry.forms ?? [])];
 
   return (
     <div className="review">

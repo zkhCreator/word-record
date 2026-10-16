@@ -23,15 +23,22 @@ export function createApp(repo: Repo, deps: Deps, opts: { webDist?: string } = {
 
   const idParam = (req: Request) => Number(req.params.id);
 
-  async function runEnrichment(entryId: number, contextId: number | null, text: string, sentence: string) {
+  /** Enriches and returns the id the entry ends up under (a new entry may fold into one sharing its lemma). */
+  async function runEnrichment(entryId: number, contextId: number | null, text: string, sentence: string, aggregate = false) {
     const entry = repo.getEntry(entryId)!;
     const model = currentModel();
     try {
       const result = await enrich(text, sentence, model);
       repo.applyEnrichment(entryId, contextId, result, entry.enrich_status !== 'done', model);
+      const existing = aggregate ? repo.findByLemma(result.lemma, entryId) : undefined;
+      if (existing) {
+        repo.merge(entryId, existing.id);
+        return existing.id;
+      }
     } catch (err) {
       repo.markEnrichError(entryId, (err as Error).message);
     }
+    return entryId;
   }
 
   app.get('/api/health', (_req, res) => {
@@ -79,12 +86,17 @@ export function createApp(repo: Repo, deps: Deps, opts: { webDist?: string } = {
       title: typeof title === 'string' ? title : undefined,
     });
     // Each new sentence gets its own contextual meaning, even for a word we already know.
+    let entryId = captured.entry.id;
     if (captured.created || !captured.context.meaning) {
-      await runEnrichment(captured.entry.id, captured.context.id, captured.entry.text, captured.context.sentence);
+      const form = captured.context.form ?? captured.entry.text;
+      entryId = await runEnrichment(entryId, captured.context.id, form, captured.context.sentence, captured.created);
     }
-    res.status(captured.created ? 201 : 200).json({
-      created: captured.created,
-      entry: repo.getEntry(captured.entry.id),
+    const merged = entryId !== captured.entry.id;
+    const created = captured.created && !merged;
+    res.status(created ? 201 : 200).json({
+      created,
+      merged,
+      entry: repo.getEntry(entryId),
       context: repo.getContext(captured.context.id),
     });
   });
@@ -110,6 +122,15 @@ export function createApp(repo: Repo, deps: Deps, opts: { webDist?: string } = {
   app.delete('/api/entries/:id', (req, res) => {
     if (!repo.remove(idParam(req))) return res.status(404).json({ error: 'not found' });
     res.status(204).end();
+  });
+
+  app.post('/api/entries/:id/merge', (req, res) => {
+    const into = Number(req.body?.into);
+    const id = idParam(req);
+    if (!Number.isInteger(into) || into === id) return res.status(400).json({ error: 'into must be another entry id' });
+    const entry = repo.merge(id, into);
+    if (!entry) return res.status(404).json({ error: 'not found' });
+    res.json({ entry, contexts: repo.contexts(entry.id), review: repo.reviewState(entry.id) });
   });
 
   app.post('/api/entries/:id/enrich', async (req, res) => {
