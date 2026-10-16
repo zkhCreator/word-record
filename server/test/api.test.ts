@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import { openDb } from '../src/db.ts';
 import { Repo, normalizeText } from '../src/repo.ts';
-import { createApp } from '../src/app.ts';
+import { createApp, isAllowedOrigin } from '../src/app.ts';
 import { normalize, parseJson, type Enricher } from '../src/magpie.ts';
 
 const fakeEnrich: Enricher = async (text, sentence) =>
@@ -19,10 +19,10 @@ async function start(enrich: Enricher = fakeEnrich) {
   const server = createApp(repo, { enrich, listModels: fakeModels, defaultModel: 'claude/a' }).listen(0);
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  const call = async (method: string, path: string, body?: unknown) => {
+  const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {
     const res = await fetch(base + path, {
       method,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...headers },
       body: body ? JSON.stringify(body) : undefined,
     });
     return { status: res.status, body: res.status === 204 ? null : await res.json() };
@@ -186,6 +186,27 @@ test('manual merge and startup aggregation', async () => {
     repo.db.prepare("UPDATE entries SET lemma = 'run' WHERE id IN (?, ?)").run(x.entry.id, y.entry.id);
     assert.equal(repo.aggregateByLemma(), 1);
     assert.deepEqual(repo.getEntry(x.entry.id)!.forms, ['runs', 'run']);
+  } finally {
+    close();
+  }
+});
+
+test('only the app and the extension may call the API', async () => {
+  assert.equal(isAllowedOrigin('chrome-extension://miconkhgngaibdmhchhlggolmdogoeik'), true);
+  assert.equal(isAllowedOrigin('http://127.0.0.1:5178'), true);
+  assert.equal(isAllowedOrigin('http://localhost:5173'), true);
+  assert.equal(isAllowedOrigin('https://evil.example'), false);
+  assert.equal(isAllowedOrigin('http://127.0.0.1.evil.example'), false);
+  assert.equal(isAllowedOrigin('https://my.site', ['https://my.site']), true);
+
+  const { call, close } = await start();
+  try {
+    const evil = await call('GET', '/api/entries', undefined, { origin: 'https://evil.example' });
+    assert.equal(evil.status, 403);
+    const ext = await call('GET', '/api/entries', undefined, { origin: 'chrome-extension://abc' });
+    assert.equal(ext.status, 200);
+    const preflight = await call('OPTIONS', '/api/entries', undefined, { origin: 'http://localhost:5173' });
+    assert.equal(preflight.status, 204);
   } finally {
     close();
   }

@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import express, { type Request, type Response, type NextFunction } from 'express';
-import cors from 'cors';
 import type { Repo } from './repo.ts';
 import type { Enricher, ModelLister } from './magpie.ts';
 import { config } from './config.ts';
@@ -13,12 +12,45 @@ export interface Deps {
   defaultModel?: string;
 }
 
-export function createApp(repo: Repo, deps: Deps, opts: { webDist?: string } = {}) {
+const LOCAL_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
+
+/**
+ * Only the web app (same local origin, including the Vite dev server) and the
+ * browser extension may call the API. Any other website could otherwise read
+ * the library, or repoint the model URL and leak the API key.
+ */
+export function isAllowedOrigin(origin: string, extra: string[] = []) {
+  if (extra.includes(origin)) return true;
+  if (/^(chrome|moz)-extension:\/\/[a-z0-9-]+$/i.test(origin)) return true;
+  try {
+    const u = new URL(origin);
+    return u.protocol === 'http:' && LOCAL_HOST.test(u.host);
+  } catch {
+    return false;
+  }
+}
+
+export function createApp(repo: Repo, deps: Deps, opts: { webDist?: string; allowedOrigins?: string[] } = {}) {
   const { enrich, listModels } = deps;
   const defaultModel = deps.defaultModel ?? config.magpie.model;
   const currentModel = () => repo.getSetting('model') || defaultModel;
   const app = express();
-  app.use(cors());
+  const extraOrigins = opts.allowedOrigins ?? config.allowedOrigins;
+
+  app.use('/api', (req, res, next) => {
+    // DNS rebinding: a hostile domain resolving to 127.0.0.1 still sends its own Host header.
+    if (!LOCAL_HOST.test(req.headers.host ?? '')) return res.status(403).json({ error: 'forbidden host' });
+    const origin = req.headers.origin;
+    if (origin) {
+      if (!isAllowedOrigin(origin, extraOrigins)) return res.status(403).json({ error: 'forbidden origin' });
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE');
+      res.setHeader('Access-Control-Allow-Headers', 'content-type');
+      if (req.method === 'OPTIONS') return res.status(204).end();
+    }
+    next();
+  });
   app.use(express.json({ limit: '256kb' }));
 
   const idParam = (req: Request) => Number(req.params.id);

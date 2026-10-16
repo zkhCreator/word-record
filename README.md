@@ -50,6 +50,7 @@ npm start          # 构建 Web 应用并启动服务：http://127.0.0.1:5178
 | `WR_MAGPIE_URL` | `http://127.0.0.1:3425/v1` | magpie（或任意 OpenAI 兼容接口）地址 |
 | `WR_MODEL` | `claude/claude-haiku-5-5` | 默认解析模型（在「设置」页选择后以设置为准） |
 | `WR_MAGPIE_KEY` | 空 | 需要鉴权时填写 |
+| `WR_ALLOWED_ORIGINS` | 空 | 额外允许调用 API 的网页来源，逗号分隔。本应用和浏览器扩展始终允许，其他网站一律拒绝 |
 
 ## 开发
 
