@@ -177,6 +177,7 @@ export function EntryDetail({ id, onChanged, onDeleted }: Props) {
         <span className="faint">
           首次记录于 {shortDate(entry.created_at)}
           {review && <>，已复习 {review.reps} 次，下次复习 {formatDue(review.due_at)}</>}
+          {entry.enrich_model && <><br />由 {entry.enrich_model} 解析</>}
         </span>
         <button className="btn" onClick={reEnrich} disabled={busy}>{busy ? '解析中…' : '重新解析'}</button>
         <button className="btn danger" onClick={removeEntry}>删除</button>

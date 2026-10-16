@@ -14,7 +14,22 @@ export interface Enrichment {
   examples: { en: string; zh: string }[];
 }
 
-export type Enricher = (text: string, sentence: string) => Promise<Enrichment>;
+export type Enricher = (text: string, sentence: string, model: string) => Promise<Enrichment>;
+
+export interface ModelInfo {
+  id: string;
+  name: string;
+  provider: string;
+  contextWindow: number | null;
+  reasoning: boolean;
+}
+
+export type ModelLister = () => Promise<ModelInfo[]>;
+
+const headers = () => ({
+  'content-type': 'application/json',
+  ...(config.magpie.apiKey ? { authorization: `Bearer ${config.magpie.apiKey}` } : {}),
+});
 
 const SYSTEM_PROMPT = `You are an English dictionary assistant for a Chinese-speaking learner.
 Given a selected English word or phrase and the sentence it appeared in, return ONLY a JSON object with these keys:
@@ -31,15 +46,12 @@ Given a selected English word or phrase and the sentence it appeared in, return 
 - "examples": 2 short new example sentences using this sense, each {"en": "...", "zh": "..."}
 No markdown, no commentary.`;
 
-export const magpieEnricher: Enricher = async (text, sentence) => {
-  const { baseUrl, model, apiKey, timeoutMs } = config.magpie;
+export const magpieEnricher: Enricher = async (text, sentence, model) => {
+  const { baseUrl, timeoutMs } = config.magpie;
   const res = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     signal: AbortSignal.timeout(timeoutMs),
-    headers: {
-      'content-type': 'application/json',
-      ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
-    },
+    headers: headers(),
     body: JSON.stringify({
       model,
       max_tokens: 1200,
@@ -49,10 +61,35 @@ export const magpieEnricher: Enricher = async (text, sentence) => {
       ],
     }),
   });
-  if (!res.ok) throw new Error(`magpie ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  if (!res.ok) throw new Error(await errorMessage(res));
   const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
   const content = body.choices?.[0]?.message?.content ?? '';
   return normalize(parseJson(content), text);
+};
+
+async function errorMessage(res: Response) {
+  const raw = await res.text();
+  try {
+    const msg = JSON.parse(raw)?.error?.message;
+    if (typeof msg === 'string') return `magpie ${res.status}: ${msg.slice(0, 300)}`;
+  } catch {}
+  return `magpie ${res.status}: ${raw.slice(0, 300)}`;
+}
+
+/** Text chat models magpie exposes (image-generation and disabled entries are skipped). */
+export const magpieModels: ModelLister = async () => {
+  const res = await fetch(`${config.magpie.baseUrl}/models`, { headers: headers(), signal: AbortSignal.timeout(5000) });
+  if (!res.ok) throw new Error(await errorMessage(res));
+  const body = (await res.json()) as { data?: Record<string, unknown>[] };
+  return (body.data ?? [])
+    .filter((m) => typeof m.id === 'string' && !/image|disabled/i.test(m.id as string))
+    .map((m) => ({
+      id: m.id as string,
+      name: (m.display_name as string) || (m.id as string),
+      provider: (m.owned_by as string) || (m.id as string).split('/')[0],
+      contextWindow: typeof m.context_window === 'number' ? m.context_window : null,
+      reasoning: m.reasoning === true,
+    }));
 };
 
 export function parseJson(content: string): Record<string, unknown> {

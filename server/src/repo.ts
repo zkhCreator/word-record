@@ -30,6 +30,7 @@ export interface Entry {
   notes: string;
   enrich_status: 'pending' | 'done' | 'error';
   enrich_error: string | null;
+  enrich_model: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -102,18 +103,26 @@ export class Repo {
     })();
   }
 
-  applyEnrichment(entryId: number, contextId: number | null, e: Enrichment, overwriteEntry: boolean) {
+  getSetting(key: string) {
+    return (this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined)?.value;
+  }
+
+  setSetting(key: string, value: string) {
+    this.db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
+  }
+
+  applyEnrichment(entryId: number, contextId: number | null, e: Enrichment, overwriteEntry: boolean, model: string) {
     const now = Date.now();
     this.db.transaction(() => {
       if (overwriteEntry) {
         this.db
           .prepare(
             `UPDATE entries SET kind = ?, lemma = ?, phonetic = ?, pos = ?, meaning = ?, definition_en = ?,
-             form_note = ?, senses = ?, examples = ?, enrich_status = 'done', enrich_error = NULL, updated_at = ?
-             WHERE id = ?`,
+             form_note = ?, senses = ?, examples = ?, enrich_status = 'done', enrich_error = NULL, enrich_model = ?,
+             updated_at = ? WHERE id = ?`,
           )
           .run(e.kind, e.lemma, e.phonetic, e.pos, e.meaning, e.definition_en, e.form_note,
-            JSON.stringify(e.senses), JSON.stringify(e.examples), now, entryId);
+            JSON.stringify(e.senses), JSON.stringify(e.examples), model, now, entryId);
       }
       if (contextId != null) {
         this.db

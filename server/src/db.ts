@@ -65,6 +65,13 @@ const migrations: string[] = [
 
   INSERT INTO reviews (entry_id, due_at) SELECT id, created_at FROM entries;
   `,
+  `
+  CREATE TABLE settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+  ALTER TABLE entries ADD COLUMN enrich_model TEXT;
+  `,
 ];
 
 export function openDb(file: string): DB {

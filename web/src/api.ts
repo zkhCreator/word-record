@@ -16,6 +16,7 @@ export interface Entry {
   notes: string;
   enrich_status: 'pending' | 'done' | 'error';
   enrich_error: string | null;
+  enrich_model: string | null;
   created_at: number;
   updated_at: number;
   context_count?: number;
@@ -60,6 +61,20 @@ export interface ReviewStats {
   forecast: { day: number; count: number }[];
 }
 
+export interface ModelInfo {
+  id: string;
+  name: string;
+  provider: string;
+  contextWindow: number | null;
+  reasoning: boolean;
+}
+
+export interface Settings { model: string; defaultModel: string; magpieUrl: string }
+
+export type ModelTest =
+  | { ok: true; model: string; ms: number; lemma: string; meaning: string }
+  | { ok: false; model: string; ms: number; error: string };
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -87,6 +102,10 @@ export const api = {
   reviewStats: () => request<ReviewStats>('/api/review/stats'),
   grade: (id: number, grade: Grade) =>
     request<{ review: ReviewState; preview: Record<Grade, number> }>(`/api/review/${id}`, { method: 'POST', body: JSON.stringify({ grade }) }),
+  settings: () => request<Settings>('/api/settings'),
+  saveSettings: (patch: Partial<Settings>) => request<Settings>('/api/settings', { method: 'PUT', body: JSON.stringify(patch) }),
+  models: () => request<{ items: ModelInfo[]; current: string }>('/api/models'),
+  testModel: (model: string) => request<ModelTest>('/api/models/test', { method: 'POST', body: JSON.stringify({ model }) }),
   capture: (body: { text: string; sentence: string }) =>
     request<{ entry: Entry; context: Context; created: boolean }>('/api/entries', { method: 'POST', body: JSON.stringify(body) }),
 };

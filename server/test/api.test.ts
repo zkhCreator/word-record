@@ -9,9 +9,14 @@ import { normalize, parseJson, type Enricher } from '../src/magpie.ts';
 const fakeEnrich: Enricher = async (text, sentence) =>
   normalize({ lemma: text.replace(/ing$/, ''), meaning: `义:${sentence.length}`, translation: '译文' }, text);
 
+const fakeModels = async () => [
+  { id: 'claude/a', name: 'A', provider: 'claude', contextWindow: 1000, reasoning: true },
+  { id: 'codex/b', name: 'B', provider: 'codex', contextWindow: null, reasoning: false },
+];
+
 async function start(enrich: Enricher = fakeEnrich) {
   const repo = new Repo(openDb(':memory:'));
-  const server = createApp(repo, enrich).listen(0);
+  const server = createApp(repo, { enrich, listModels: fakeModels, defaultModel: 'claude/a' }).listen(0);
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const call = async (method: string, path: string, body?: unknown) => {
@@ -104,6 +109,28 @@ test('review queue and grading', async () => {
     assert.equal(stats.reviewedToday, 1);
     assert.equal(stats.forecast.length, 7);
     assert.equal((await call('GET', `/api/entries/${id}`)).body.review.stage, 1);
+  } finally {
+    close();
+  }
+});
+
+test('model selection is persisted and used for enrichment', async () => {
+  const used: string[] = [];
+  const { call, close } = await start(async (text, sentence, model) => {
+    used.push(model);
+    return fakeEnrich(text, sentence, model);
+  });
+  try {
+    assert.equal((await call('GET', '/api/settings')).body.model, 'claude/a');
+    assert.equal((await call('GET', '/api/models')).body.items.length, 2);
+    assert.equal((await call('PUT', '/api/settings', { model: '' })).status, 400);
+    assert.equal((await call('PUT', '/api/settings', { model: 'codex/b' })).body.model, 'codex/b');
+
+    const { body } = await call('POST', '/api/entries', { text: 'lucid', sentence: 'A lucid explanation.' });
+    assert.equal(body.entry.enrich_model, 'codex/b');
+    const t = await call('POST', '/api/models/test', { model: 'claude/a' });
+    assert.equal(t.body.ok, true);
+    assert.deepEqual(used, ['codex/b', 'claude/a']);
   } finally {
     close();
   }

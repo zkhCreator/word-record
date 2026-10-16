@@ -3,10 +3,20 @@ import path from 'node:path';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import cors from 'cors';
 import type { Repo } from './repo.ts';
-import type { Enricher } from './magpie.ts';
+import type { Enricher, ModelLister } from './magpie.ts';
+import { config } from './config.ts';
 import { GRADES, MASTERED_STAGE, INTERVALS, preview, type Grade } from './srs.ts';
 
-export function createApp(repo: Repo, enrich: Enricher, opts: { webDist?: string } = {}) {
+export interface Deps {
+  enrich: Enricher;
+  listModels: ModelLister;
+  defaultModel?: string;
+}
+
+export function createApp(repo: Repo, deps: Deps, opts: { webDist?: string } = {}) {
+  const { enrich, listModels } = deps;
+  const defaultModel = deps.defaultModel ?? config.magpie.model;
+  const currentModel = () => repo.getSetting('model') || defaultModel;
   const app = express();
   app.use(cors());
   app.use(express.json({ limit: '256kb' }));
@@ -15,9 +25,10 @@ export function createApp(repo: Repo, enrich: Enricher, opts: { webDist?: string
 
   async function runEnrichment(entryId: number, contextId: number | null, text: string, sentence: string) {
     const entry = repo.getEntry(entryId)!;
+    const model = currentModel();
     try {
-      const result = await enrich(text, sentence);
-      repo.applyEnrichment(entryId, contextId, result, entry.enrich_status !== 'done');
+      const result = await enrich(text, sentence, model);
+      repo.applyEnrichment(entryId, contextId, result, entry.enrich_status !== 'done', model);
     } catch (err) {
       repo.markEnrichError(entryId, (err as Error).message);
     }
@@ -25,6 +36,36 @@ export function createApp(repo: Repo, enrich: Enricher, opts: { webDist?: string
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, name: 'word-record' });
+  });
+
+  app.get('/api/settings', (_req, res) => {
+    res.json({ model: currentModel(), defaultModel, magpieUrl: config.magpie.baseUrl });
+  });
+
+  app.put('/api/settings', (req, res) => {
+    const { model } = req.body ?? {};
+    if (typeof model !== 'string' || !model.trim()) return res.status(400).json({ error: 'model is required' });
+    repo.setSetting('model', model.trim());
+    res.json({ model: currentModel(), defaultModel, magpieUrl: config.magpie.baseUrl });
+  });
+
+  app.get('/api/models', async (_req, res) => {
+    try {
+      res.json({ items: await listModels(), current: currentModel() });
+    } catch (err) {
+      res.status(502).json({ error: `无法从 magpie 获取模型列表：${(err as Error).message}` });
+    }
+  });
+
+  app.post('/api/models/test', async (req, res) => {
+    const model = typeof req.body?.model === 'string' && req.body.model.trim() ? req.body.model.trim() : currentModel();
+    const started = Date.now();
+    try {
+      const r = await enrich('ephemeral', 'Fame in the age of social media is often ephemeral.', model);
+      res.json({ ok: true, model, ms: Date.now() - started, lemma: r.lemma, meaning: r.meaning });
+    } catch (err) {
+      res.json({ ok: false, model, ms: Date.now() - started, error: (err as Error).message });
+    }
   });
 
   app.post('/api/entries', async (req, res) => {
